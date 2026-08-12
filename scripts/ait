@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+# ait — AI Tools installer for Claude Code and Copilot items.
+# Usage: ait [install|list|update|help]
+set -euo pipefail
+
+# ─── Resolve repo root (follows symlinks) ────────────────────────────────────
+_src="${BASH_SOURCE[0]}"
+while [ -L "$_src" ]; do
+  _dir="$(cd "$(dirname "$_src")" && pwd)"
+  _src="$(readlink "$_src")"
+  [[ "$_src" != /* ]] && _src="$_dir/$_src"
+done
+readonly REPO_DIR="$(cd "$(dirname "$_src")/.." && pwd)"
+readonly LIB_DIR="$REPO_DIR/scripts/lib"
+
+# ─── Colours (disabled when not a tty) ───────────────────────────────────────
+if [ -t 1 ]; then
+  GREEN='\033[0;32m'; YELLOW='\033[1;33m'
+  CYAN='\033[0;36m'; BOLD='\033[1m'; DIM='\033[2m'; RESET='\033[0m'
+else
+  GREEN=''; YELLOW=''; CYAN=''; BOLD=''; DIM=''; RESET=''
+fi
+
+# ─── Output helpers ───────────────────────────────────────────────────────────
+die()     { printf '\033[0;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
+info()    { printf "${CYAN}→${RESET}  %s\n" "$*"; }
+success() { printf "${GREEN}✓${RESET}  %s\n" "$*"; }
+warn()    { printf "${YELLOW}!${RESET}  %s\n" "$*"; }
+header()  { printf "\n${BOLD}%s${RESET}\n" "$*"; }
+dim()     { printf "${DIM}%s${RESET}\n" "$*"; }
+
+# ─── Load library modules ─────────────────────────────────────────────────────
+# shellcheck source=lib/collect.sh
+source "$LIB_DIR/collect.sh"
+# shellcheck source=lib/install.sh
+source "$LIB_DIR/install.sh"
+# shellcheck source=lib/menu.sh
+source "$LIB_DIR/menu.sh"
+# shellcheck source=lib/wizard.sh
+source "$LIB_DIR/wizard.sh"
+# shellcheck source=lib/providers/claude-code.sh
+source "$LIB_DIR/providers/claude-code.sh"
+# shellcheck source=lib/providers/copilot.sh
+source "$LIB_DIR/providers/copilot.sh"
+
+# ─── Auto-pull ────────────────────────────────────────────────────────────────
+auto_pull() {
+  printf "${CYAN}→${RESET}  Syncing ai-tools repo... "
+  if git -C "$REPO_DIR" pull --ff-only --quiet 2>/dev/null; then
+    printf "${GREEN}done${RESET}\n"
+  else
+    printf "${YELLOW}skipped${RESET} ${DIM}(offline or local changes present)${RESET}\n"
+  fi
+}
+
+# ─── Commands ────────────────────────────────────────────────────────────────
+cmd_install() {
+  auto_pull
+  run_wizard
+}
+
+cmd_list() {
+  auto_pull
+  header "Available items"
+  printf "\n${BOLD}%-8s  %s${RESET}\n" "TYPE" "NAME"
+  printf "%s\n" "────────────────────────────"
+
+  local type
+  for type in agent skill hook; do
+    collect_items_of_type "$type" | while IFS=$'\t' read -r name _path; do
+      printf "%-8s  %s\n" "$type" "$name"
+    done
+  done
+  printf "\n"
+}
+
+cmd_update() {
+  auto_pull
+}
+
+cmd_help() {
+  cat <<HELP
+
+${BOLD}ait${RESET} — AI Tools installer
+
+${BOLD}USAGE${RESET}
+  ait [command]
+
+${BOLD}COMMANDS${RESET}
+  install    4-step interactive installer ${DIM}(default)${RESET}
+  list       List all available items
+  update     Pull latest from repo
+  help       Show this help
+
+${BOLD}WIZARD STEPS${RESET}
+  1. Provider  Claude Code | Copilot
+  2. Scope     Global (~/.claude) | Local (.claude in current dir)
+  3. Type      Agent | Skill | Hook
+  4. Tools     Multi-select with SPACE, confirm with ENTER
+
+  ESC goes back one step.  ESC on step 1 exits.
+
+${BOLD}REQUIREMENTS${RESET}
+  jq ${DIM}(optional, brew install jq)${RESET}  auto hook wiring in settings.json
+
+HELP
+}
+
+# ─── Entry point ─────────────────────────────────────────────────────────────
+main() {
+  local cmd="${1:-install}"
+  shift || true
+  case "$cmd" in
+    install)        cmd_install ;;
+    list)           cmd_list ;;
+    update)         cmd_update ;;
+    help|--help|-h) cmd_help ;;
+    *) die "Unknown command: '$cmd'. Run 'ait help' for usage." ;;
+  esac
+}
+
+main "$@"
