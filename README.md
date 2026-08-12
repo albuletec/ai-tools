@@ -68,6 +68,11 @@ That opens a four-step wizard:
 
 Nothing is written until you confirm at the summary screen.
 
+> **Careful — precedence differs by type in Claude Code.** For **agents**, a project
+> definition beats a global one. For **skills**, it's the reverse: a personal
+> (`~/.claude`) skill overrides a project one of the same name. So a global skill install
+> will shadow a project's own version, not defer to it.
+
 ### Commands
 
 ```bash
@@ -104,17 +109,28 @@ Run `ait list` to see the current inventory.
 | Type | Provider | Global | Local |
 |------|----------|--------|-------|
 | Agent | Claude Code | `~/.claude/agents/<name>.md` | `.claude/agents/<name>.md` |
-| Agent | Copilot | `<VS Code User>/agents/<name>.agent.md` | `.github/agents/<name>.agent.md` |
+| Agent | Copilot | `~/.copilot/agents/<name>.agent.md` | `.github/agents/<name>.agent.md` |
 | Skill | Claude Code | `~/.claude/skills/<name>/SKILL.md` | `.claude/skills/<name>/SKILL.md` |
-| Skill | Copilot | `<VS Code User>/prompts/<name>.prompt.md` | `.github/prompts/<name>.prompt.md` |
+| Skill | Copilot | `~/.copilot/skills/<name>/SKILL.md` | `.github/skills/<name>/SKILL.md` |
 | Hook | Claude Code | `~/.claude/hooks/<name>.sh` | `.claude/hooks/<name>.sh` |
 
-`<VS Code User>` is `~/Library/Application Support/Code/User` on macOS,
-`~/.config/Code/User` on Linux. Override it with `AIT_COPILOT_USER_DIR` if your setup
-differs — the VS Code docs give `~/.copilot/agents` for user-level agents, but
-[microsoft/vscode#305642](https://github.com/microsoft/vscode/issues/305642) reports that
-as a documentation error and the User profile folder as the one actually picked up. This is
-unresolved upstream, so global Copilot installs are the least certain part of this tool.
+Copilot skills are installed as `SKILL.md`, **not** as `.prompt.md` prompt files. Copilot
+supports Anthropic-style skills natively, and prompt files are now the legacy path — the VS
+Code docs state that agents on the Agent Host don't use them, and VS Code ships a *Migrate
+Prompts* command that converts prompt files into skills.
+
+Global Copilot scope targets `~/.copilot/`, the harness-agnostic tree the Agent Host reads
+and what `chat.agentSkillsLocations` enables by default. The older in-extension harness
+instead reads the VS Code profile's `prompts/` folder
+(`~/Library/Application Support/Code/User/prompts/` on macOS,
+`~/.config/Code/User/prompts/` on Linux) — set `AIT_COPILOT_USER_DIR` to target that if
+you're on the local harness.
+
+> **You may not need the Copilot provider at all.** VS Code reads `.claude/agents/`,
+> `.claude/skills/`, `~/.claude/skills/`, and `CLAUDE.md` directly by default, so a Claude
+> Code install is already largely visible to Copilot. Installing for Copilot gets you
+> native filenames and correctly-named tools rather than relying on that compatibility
+> layer.
 
 Hooks are also wired into the matching `settings.json` automatically, under the right event
 and matcher. Re-running an install won't duplicate an existing entry.
@@ -153,9 +169,11 @@ Per-item overrides go underneath:
 ```yaml
 providers:
   copilot:
-    model: gpt-5
-    agent: plan                    # skills only: ask | agent | plan | <custom agent>
-    tools: [read, search]          # overrides the automatic translation
+    model: gpt-5                   # agents only
+    tools: [read, search]          # agents only — overrides automatic translation
+    target: vscode                 # agents only — vscode | github-copilot
+    argument-hint: "[pr-number]"   # skills only
+    user-invocable: false
     disable-model-invocation: true
 ```
 
@@ -202,6 +220,19 @@ Hooks declare their wiring in a comment header, read by the installer:
 ## ait:timeout  10
 ```
 
+`ait:event` accepts any Claude Code hook event — `PreToolUse`, `PostToolUse`,
+`PostToolUseFailure`, `PermissionRequest`, `SessionStart`, `SessionEnd`,
+`UserPromptSubmit`, `Stop`, `StopFailure`, `FileChanged`, `ConfigChange`.
+
+Only the four tool events accept a `matcher`; for anything else it's ignored and omitted
+from `settings.json`, since including one there would be invalid. `ait:timeout` is in
+seconds. Exit 2 from a hook blocks the action.
+
+The generated `command` differs by scope — `${CLAUDE_PROJECT_DIR}/.claude/hooks/<name>.sh`
+for a project install (a bare relative path would resolve against the working directory),
+and `$HOME/.claude/hooks/<name>.sh` for a global one, as there's no documented placeholder
+for the home directory.
+
 ---
 
 ## Layout
@@ -237,16 +268,24 @@ scripts/lib/
 
 The Copilot file formats and frontmatter schemas this tool generates are taken from:
 
+**Copilot**
+
 - [Custom agents configuration](https://docs.github.com/en/copilot/reference/custom-agents-configuration)
   — `.agent.md` schema and the canonical `tools` alias table
+- [Agent skills in VS Code](https://code.visualstudio.com/docs/agent-customization/agent-skills)
+  — `SKILL.md` schema, skill locations, `chat.agentSkillsLocations`
 - [Custom agents in VS Code](https://code.visualstudio.com/docs/agent-customization/custom-agents)
-  — workspace and user-level agent locations
-- [Use prompt files in VS Code](https://code.visualstudio.com/docs/copilot/customization/prompt-files)
-  — `.prompt.md` schema; note there is no `mode` property, it's `agent`
-- [Custom instructions in VS Code](https://code.visualstudio.com/docs/copilot/customization/custom-instructions)
-  — confirms `AGENTS.md`, `CLAUDE.md`, and `.github/copilot-instructions.md` are all read
+  — workspace and user-level agent locations, Agent Host behaviour
+- [VS Code 1.129 release notes](https://code.visualstudio.com/updates/v1_129)
+  — prompt files are Local-harness only; *Migrate Prompts* converts them to skills
 
-Worth knowing: VS Code reads `.claude/agents/` directly, and supports `CLAUDE.md` as well as
-`AGENTS.md`. So a Claude Code install is partly portable to VS Code on its own — the Copilot
-provider exists to produce native files with correctly-named tools rather than relying on
-that compatibility layer.
+**Claude Code**
+
+- [Subagents](https://code.claude.com/docs/en/sub-agents) — frontmatter schema, locations,
+  precedence, valid `model` values
+- [Skills](https://code.claude.com/docs/en/skills) — `SKILL.md` schema, locations, and the
+  precedence inversion versus agents
+- [Hooks](https://code.claude.com/docs/en/hooks) — event list, which events accept a
+  `matcher`, `${CLAUDE_PROJECT_DIR}`, exit codes
+- [Settings](https://code.claude.com/docs/en/settings) — settings file locations and
+  precedence

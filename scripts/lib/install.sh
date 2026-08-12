@@ -16,7 +16,17 @@ parse_hook_meta() {
     "${timeout:-10}"
 }
 
+# True if EVENT is a tool event, i.e. one that accepts a matcher.
+# Non-tool events (SessionStart, Stop, UserPromptSubmit, …) must not carry one.
+event_supports_matcher() {
+  case "$1" in
+    PreToolUse|PostToolUse|PostToolUseFailure|PermissionRequest) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # Add a hook entry to settings.json, idempotently.
+# MATCHER is ignored for events that don't support one.
 # Usage: patch_settings_json FILE EVENT MATCHER CMD TIMEOUT
 patch_settings_json() {
   local settings_file="$1"
@@ -46,6 +56,11 @@ patch_settings_json() {
     return
   fi
 
+  # Non-tool events take no matcher; their bucket is the entry without one.
+  if ! event_supports_matcher "$event"; then
+    matcher=""
+  fi
+
   local tmp
   tmp=$(mktemp "${TMPDIR:-/tmp}/ait-settings.XXXXXX")
   jq \
@@ -53,13 +68,24 @@ patch_settings_json() {
     --arg matcher "$matcher" \
     --arg cmd "$cmd" \
     --argjson timeout "$timeout" '
+    def entry: {type:"command", command:$cmd, timeout:$timeout};
+
     .hooks //= {} |
     .hooks[$event] //= [] |
-    ((.hooks[$event] | map(.matcher == $matcher) | index(true)) // null) as $idx |
-    if $idx != null then
-      .hooks[$event][$idx].hooks += [{type:"command", command:$cmd, timeout:$timeout}]
+    if $matcher == "" then
+      ((.hooks[$event] | map(has("matcher") | not) | index(true)) // null) as $idx |
+      if $idx != null then
+        .hooks[$event][$idx].hooks += [entry]
+      else
+        .hooks[$event] += [{hooks: [entry]}]
+      end
     else
-      .hooks[$event] += [{matcher:$matcher, hooks:[{type:"command", command:$cmd, timeout:$timeout}]}]
+      ((.hooks[$event] | map(.matcher? == $matcher) | index(true)) // null) as $idx |
+      if $idx != null then
+        .hooks[$event][$idx].hooks += [entry]
+      else
+        .hooks[$event] += [{matcher: $matcher, hooks: [entry]}]
+      end
     end
   ' "$settings_file" > "$tmp" && mv "$tmp" "$settings_file"
 

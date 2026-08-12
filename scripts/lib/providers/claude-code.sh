@@ -85,11 +85,15 @@ _cc_write_hook() {
   chmod +x "$hooks_dir/$name.sh"
   printf '  \033[32m✓\033[0m  hook   →  %s/%s.sh\n' "$hooks_dir" "$name"
 
+  # Project hooks use the documented ${CLAUDE_PROJECT_DIR} placeholder rather than
+  # a bare relative path, which would otherwise resolve against the working
+  # directory. There is no equivalent placeholder for the user's home directory,
+  # so global hooks fall back to $HOME.
   local cmd
   if [ "$scope" = "global" ]; then
     cmd="\$HOME/.claude/hooks/$name.sh"
   else
-    cmd=".claude/hooks/$name.sh"
+    cmd="\${CLAUDE_PROJECT_DIR}/.claude/hooks/$name.sh"
   fi
 
   local meta event matcher timeout

@@ -65,13 +65,3 @@ collect_items_of_type() {
     fi
   done < <(_all_items_of_type "$type")
 }
-
-# Emit the types that have at least one item for PROVIDER.
-available_types() {
-  local provider="${1:-claude-code}"
-  local type count
-  for type in agent skill hook; do
-    count=$(collect_items_of_type "$type" "$provider" | wc -l | tr -d ' ')
-    [ "$count" -gt 0 ] && printf '%s\n' "$type"
-  done
-}
