@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Shared install utilities: supporting-file copying, settings.json patching and
-# hook metadata parsing. Type-specific install logic lives in scripts/assistants/.
+# Shared install utilities: supporting-file copying, context-file writing,
+# settings.json patching and hook metadata parsing. Type-specific install logic
+# lives in scripts/assistants/.
 
 # Copy everything in a skill's source directory except SKILL.md, preserving
 # subdirectories. Skills bundle reference material in scripts/, references/ and
@@ -21,6 +22,58 @@ copy_skill_support_files() {
       cp "$entry" "$dest/$base"
     fi
   done
+}
+
+# Set to "written" or "left-alone" by the last install_init_file call. The caller
+# needs to know which happened to report a summary, and it cannot capture stdout:
+# in ask mode the overwrite prompt has to reach the terminal.
+AIT_INIT_LAST_ACTION=""
+
+# Copy one `ait init` template to its target. MODE is ask | skip | overwrite.
+#
+# Whole files only — an existing file is replaced with consent or left alone, never
+# edited in place and never appended to, because a context file is the user's own
+# prose and merging into it would mean guessing where their edits belong.
+#
+# Leaving an existing file alone is a correct outcome, not a failure, so skip and a
+# declined prompt both return 0. Only a missing template is an error.
+# Usage: install_init_file SRC_ABS TARGET_ABS MODE
+install_init_file() {
+  local src="$1" target="$2" mode="$3"
+  AIT_INIT_LAST_ACTION="left-alone"
+
+  if [ ! -f "$src" ]; then
+    printf '  \033[31m✗\033[0m  template is missing: %s\n' "$src"
+    return 1
+  fi
+
+  if [ -e "$target" ]; then
+    case "$mode" in
+      overwrite) ;;
+      skip)
+        printf '  \033[33m!\033[0m  exists, left alone: %s\n' "$target"
+        return 0
+        ;;
+      *)
+        local answer=""
+        printf '  overwrite %s? [y/N]: ' "$target"
+        IFS= read -r answer || answer=""
+        case "$answer" in
+          y|Y) ;;
+          *)
+            printf '  \033[33m!\033[0m  exists, left alone: %s\n' "$target"
+            return 0
+            ;;
+        esac
+        ;;
+    esac
+  fi
+
+  mkdir -p "$(dirname "$target")"
+  cp "$src" "$target"
+  AIT_INIT_LAST_ACTION="written"
+  printf '  \033[32m✓\033[0m  %s\n' "$target"
+  return 0
 }
 
 # Read ## ait:key value lines from a hook file header.

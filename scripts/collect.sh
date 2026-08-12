@@ -2,6 +2,11 @@
 # Item discovery — scans the repo and emits item records.
 # Requires: has_assistant (body.sh), registry.sh. $REPO_DIR must be set by the caller.
 
+# The item types ait models, in the order they are offered. This is the one place
+# the type set is written down: `ait list`, `validate_repo` and the golden test
+# section all iterate it, so adding a type here is enough for all three.
+AIT_ITEM_TYPES="agent skill rule hook"
+
 # Absolute path to an item's primary markdown file.
 # Directory-based skills resolve to their SKILL.md.
 item_source_file() {
@@ -35,6 +40,17 @@ _all_items_of_type() {
         [ -f "${d}SKILL.md" ] || continue
         name=$(basename "$d")
         printf '%s\tcommon/skills/%s\n' "$name" "$name"
+      done
+      ;;
+    rule)
+      for f in "$REPO_DIR"/common/rules/*.md; do
+        [ -f "$f" ] || continue
+        name=$(basename "$f" .md)
+        # The format README is documentation, not a rule. Without this skip it
+        # would be listed as a "readme" item, fail validate_repo for having no
+        # frontmatter, and make `ait validate` exit non-zero.
+        [ "$name" = "README" ] && continue
+        printf '%s\tcommon/rules/%s.md\n' "$name" "$name"
       done
       ;;
     hook)

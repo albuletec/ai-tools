@@ -3,7 +3,8 @@
 # assertions (Ruby ships with macOS and every GitHub runner).
 #
 #   tests/run.sh            run everything
-#   tests/run.sh unit       run one section: syntax | install | unit | validate | golden | hooks
+#   tests/run.sh unit       run one section:
+#                           syntax | install | unit | validate | rules | init | golden | hooks
 #
 # Every case here maps to a real defect. Sections marked "regression" reproduce a
 # bug found in the 2026-08-12 audit and fail against the code that shipped it.
@@ -23,6 +24,10 @@ source "$SCRIPTS_DIR/collect.sh"
 source "$SCRIPTS_DIR/install.sh"
 # shellcheck source=../scripts/validate.sh
 source "$SCRIPTS_DIR/validate.sh"
+# Sourced for _init_collect and _init_write. It defines functions and initialises
+# empty arrays only, so loading it has no side effects outside the wizard flows.
+# shellcheck source=../scripts/wizard.sh
+source "$SCRIPTS_DIR/wizard.sh"
 for a in $AIT_ASSISTANTS; do
   # shellcheck source=/dev/null
   source "$SCRIPTS_DIR/assistants/$a.sh"
@@ -194,7 +199,7 @@ test_install() {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# unit — frontmatter parsing and tool translation
+# unit — frontmatter parsing, yaml_quote, hook metadata
 # ─────────────────────────────────────────────────────────────────────────────
 test_unit() {
   section "unit: frontmatter scalars"
@@ -264,21 +269,6 @@ EOF
     assert_eq "yaml_quote survives: $tricky" "$tricky" "$rt"
   done
 
-  section "unit: tool translation"
-  assert_eq "dedupes Write and Edit" "execute, read, edit" "$(translate_tools 'Bash, Read, Write, Edit')"
-  assert_eq "maps Grep and Glob to search" "search" "$(translate_tools 'Grep, Glob')"
-  assert_eq "maps Task to agent" "agent" "$(translate_tools '[Task]')"
-  assert_eq "unmapped names reported" "Skill mcp__jira__search" \
-    "$(unmapped_tools 'Read, Skill, mcp__jira__search' | sort | tr '\n' ' ' | sed 's/ $//')"
-  assert_eq "no unmapped names for a plain list" "" "$(unmapped_tools 'Bash, Read')"
-
-  assert_true  "Read+Grep is read-only"        tools_are_readonly 'Read, Grep'
-  assert_false "Read+Write is not read-only"   tools_are_readonly 'Read, Write'
-  assert_false "Bash escapes read-only"        tools_are_readonly 'Bash, Read'
-  assert_false "Task escapes read-only"        tools_are_readonly 'Task, Read'
-  assert_false "unknown tool escapes read-only" tools_are_readonly 'Read, mcp__x__y'
-  assert_false "empty list is not read-only"   tools_are_readonly ''
-
   section "unit: hook metadata and events"
   cat > "$d/h.sh" <<'EOF'
 #!/usr/bin/env bash
@@ -331,20 +321,20 @@ test_validate() {
   assert_contains "reason names both identities" "does not match" \
     "$(validate_item skill mismatch common/skills/mismatch.md copilot 2>&1)"
 
-  # regression: unmappable tools were dropped, and an absent tools key means
-  # "every tool enabled" on Copilot
-  printf -- '---\nname: mcponly\ndescription: Uses an MCP tool.\ntools: [Read, mcp__jira__search]\n---\nBody.\n' \
-    > "$d/common/agents/mcponly.md"
-  assert_false "untranslatable tools refused for copilot" validate_item agent mcponly common/agents/mcponly.md copilot
-  assert_contains "reason explains the escalation" "grant every tool" \
-    "$(validate_item agent mcponly common/agents/mcponly.md copilot 2>&1)"
-  assert_true "untranslatable tools fine for claude-code" validate_item agent mcponly common/agents/mcponly.md claude-code
-  assert_true "untranslatable tools fine for cursor" validate_item agent mcponly common/agents/mcponly.md cursor
+  # regression: an absent tools key means "every tool enabled" on Copilot, so an
+  # agent that opts in without declaring a list must be refused
+  printf -- '---\nname: notools\ndescription: Opts into Copilot without a tool list.\nassistants:\n  copilot:\n  cursor:\n---\nBody.\n' \
+    > "$d/common/agents/notools.md"
+  assert_false "missing copilot tools refused for copilot" validate_item agent notools common/agents/notools.md copilot
+  assert_contains "reason explains the escalation" "every tool enabled" \
+    "$(validate_item agent notools common/agents/notools.md copilot 2>&1)"
+  assert_true "missing copilot tools fine for claude-code" validate_item agent notools common/agents/notools.md claude-code
+  assert_true "missing copilot tools fine for cursor" validate_item agent notools common/agents/notools.md cursor
 
-  printf -- '---\nname: overridden\ndescription: Declares an explicit copilot list.\ntools: [Read, mcp__jira__search]\nassistants:\n  copilot:\n    tools: [read]\n---\nBody.\n' \
-    > "$d/common/agents/overridden.md"
-  assert_true "explicit copilot tools override is accepted" \
-    validate_item agent overridden common/agents/overridden.md copilot
+  printf -- '---\nname: declared\ndescription: Declares its own Copilot tool list.\nassistants:\n  claude-code:\n    tools: [Read]\n  copilot:\n    tools: [read]\n---\nBody.\n' \
+    > "$d/common/agents/declared.md"
+  assert_true "declared copilot tools are accepted" \
+    validate_item agent declared common/agents/declared.md copilot
 
   printf '#!/usr/bin/env bash\n## ait:event    PreToolUse\n## ait:timeout  10s\necho\n' > "$d/claude-code/hooks/badtime.sh"
   assert_false "non-integer timeout is refused" validate_item hook badtime claude-code/hooks/badtime.sh claude-code
@@ -365,6 +355,307 @@ test_validate() {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
+# rules — the fourth item type: discovery, rendering per assistant, activation
+# ─────────────────────────────────────────────────────────────────────────────
+test_rules() {
+  section "rules: discovery skips the format README"
+  local fx; fx=$(new_dir rules)
+  local saved_repo="$REPO_DIR" saved_home="$HOME"
+  mkdir -p "$fx/common/rules" "$fx/proj" "$fx/home"
+
+  printf '# Rules\n\nFormat notes, not a rule.\n' > "$fx/common/rules/README.md"
+
+  cat > "$fx/common/rules/code-conventions.md" <<'EOF'
+---
+name: code-conventions
+description: How this codebase is written.
+paths: ["src/**/*.ts"]
+assistants:
+  cursor:
+    alwaysApply: true
+  windsurf:
+    trigger: always_on
+---
+Follow the conventions in {instructionsFile}.
+EOF
+
+  REPO_DIR="$fx"
+
+  # regression: without the README skip, `ait list` shows a "readme" rule and
+  # validate_repo fails on it for having no frontmatter.
+  assert_eq "the rule is discovered, the README is not" \
+    "code-conventions|common/rules/code-conventions.md" \
+    "$(_all_items_of_type rule | tr '\t' '|')"
+  assert_eq "rule sits between skill and hook in the type list" \
+    "agent skill rule hook" "$AIT_ITEM_TYPES"
+
+  HOME="$fx/home"
+  AIT_WINDSURF_USER_DIR="$fx/wsuser"
+  claude_code_install code-conventions rule common/rules/code-conventions.md local  "$fx/proj" >/dev/null 2>&1
+  claude_code_install code-conventions rule common/rules/code-conventions.md global "$fx/proj" >/dev/null 2>&1
+  cursor_install      code-conventions rule common/rules/code-conventions.md local  "$fx/proj" >/dev/null 2>&1
+  windsurf_install    code-conventions rule common/rules/code-conventions.md local  "$fx/proj" >/dev/null 2>&1
+  windsurf_install    code-conventions rule common/rules/code-conventions.md global "$fx/proj" >/dev/null 2>&1
+  unset AIT_WINDSURF_USER_DIR
+  HOME="$saved_home"
+
+  section "rules: claude-code"
+  local ccr="$fx/proj/.claude/rules/code-conventions.md"
+  assert_true "local rule lands in .claude/rules"     bash -c "[ -f '$ccr' ]"
+  assert_true "global rule lands in ~/.claude/rules"  bash -c "[ -f '$fx/home/.claude/rules/code-conventions.md' ]"
+  assert_true "the file parses as YAML plus a body"   yaml_parses "$ccr"
+  assert_eq   "it keeps the declared paths" '["src/**/*.ts"]' "$(yaml_key "$ccr" paths)"
+  assert_eq   "it keeps its name"           '"code-conventions"' "$(yaml_key "$ccr" name)"
+  assert_eq   "it drops the assistants block" "KEY_MISSING" "$(yaml_key "$ccr" assistants)"
+  # A top-level trigger or globs written for another assistant must never leak in,
+  # which is why rules are rendered explicitly rather than passed through.
+  assert_eq   "it carries no windsurf trigger" "KEY_MISSING" "$(yaml_key "$ccr" trigger)"
+  assert_contains "the body says CLAUDE.md" "CLAUDE.md" "$(cat "$ccr")"
+
+  section "rules: cursor"
+  local curr="$fx/proj/.cursor/rules/code-conventions.mdc"
+  assert_true  "the rule installs as .mdc" bash -c "[ -f '$curr' ]"
+  assert_false "no .md is left beside it"  bash -c "[ -e '$fx/proj/.cursor/rules/code-conventions.md' ]"
+  assert_eq "alwaysApply carries over" "true"        "$(yaml_key "$curr" alwaysApply)"
+  assert_eq "no name key is emitted"   "KEY_MISSING" "$(yaml_key "$curr" name)"
+  assert_eq "no assistants key leaks"  "KEY_MISSING" "$(yaml_key "$curr" assistants)"
+  # regression: falling back to the top-level description would silently make
+  # every rule Agent Requested, because on Cursor a present description is what
+  # selects that activation mode.
+  assert_eq "an undeclared description stays absent" "KEY_MISSING" "$(yaml_key "$curr" description)"
+  assert_contains "the body says AGENTS.md" "AGENTS.md" "$(cat "$curr")"
+
+  section "rules: windsurf"
+  local winr="$fx/proj/.windsurf/rules/code-conventions.md"
+  assert_true "the local rule lands in .windsurf/rules" bash -c "[ -f '$winr' ]"
+  assert_true "the global rule lands under the user dir" \
+    bash -c "[ -f '$fx/wsuser/rules/code-conventions.md' ]"
+  assert_eq "the declared trigger is emitted" '"always_on"' "$(yaml_key "$winr" trigger)"
+  assert_eq "a top-level description is re-quoted" '"How this codebase is written."' \
+    "$(yaml_key "$winr" description)"
+  assert_eq "no assistants key leaks" "KEY_MISSING" "$(yaml_key "$winr" assistants)"
+
+  section "rules: copilot refuses them"
+  assert_false "copilot does not support the type" assistant_supports_type copilot rule
+  assert_false "a direct install returns non-zero" \
+    copilot_install code-conventions rule common/rules/code-conventions.md local "$fx/proj"
+  assert_false "and writes nothing under .github/" bash -c "[ -e '$fx/proj/.github' ]"
+
+  section "rules: validation"
+  assert_true "the valid rule passes for claude-code" \
+    validate_item rule code-conventions common/rules/code-conventions.md claude-code
+  assert_true "the valid rule passes for cursor" \
+    validate_item rule code-conventions common/rules/code-conventions.md cursor
+  assert_true "the valid rule passes for windsurf" \
+    validate_item rule code-conventions common/rules/code-conventions.md windsurf
+
+  cat > "$fx/common/rules/notrigger.md" <<'EOF'
+---
+name: notrigger
+description: Opts into Windsurf without declaring a trigger.
+assistants:
+  cursor:
+  windsurf:
+---
+Body.
+EOF
+  assert_false "no windsurf trigger is refused" \
+    validate_item rule notrigger common/rules/notrigger.md windsurf
+  assert_contains "the reason names the trigger" "trigger" \
+    "$(validate_item rule notrigger common/rules/notrigger.md windsurf 2>&1)"
+  assert_true "the same rule is fine for claude-code" \
+    validate_item rule notrigger common/rules/notrigger.md claude-code
+  assert_true "the same rule is fine for cursor" \
+    validate_item rule notrigger common/rules/notrigger.md cursor
+
+  cat > "$fx/common/rules/badtrigger.md" <<'EOF'
+---
+name: badtrigger
+description: Declares a trigger Windsurf does not know.
+assistants:
+  windsurf:
+    trigger: whenever
+---
+Body.
+EOF
+  assert_false "an unknown trigger is refused" \
+    validate_item rule badtrigger common/rules/badtrigger.md windsurf
+  assert_true  "always_on is a known trigger"    is_known_rule_trigger always_on
+  assert_true  "model_decision is a known trigger" is_known_rule_trigger model_decision
+  assert_false "whenever is not a known trigger" is_known_rule_trigger whenever
+
+  cat > "$fx/common/rules/asks.md" <<'EOF'
+---
+name: asks
+assistants:
+  windsurf:
+    trigger: model_decision
+---
+Body.
+EOF
+  assert_false "model_decision with no description anywhere is refused" \
+    validate_item rule asks common/rules/asks.md windsurf
+  assert_contains "the reason names the trigger that needs one" "model_decision" \
+    "$(validate_item rule asks common/rules/asks.md windsurf 2>&1)"
+
+  cat > "$fx/common/rules/noglobs.md" <<'EOF'
+---
+name: noglobs
+description: Glob-triggered with no pattern to match.
+assistants:
+  windsurf:
+    trigger: glob
+---
+Body.
+EOF
+  assert_false "trigger glob with no globs is refused" \
+    validate_item rule noglobs common/rules/noglobs.md windsurf
+
+  cat > "$fx/common/rules/both.md" <<'EOF'
+---
+name: both
+description: Contradictory Cursor activation.
+assistants:
+  cursor:
+    alwaysApply: true
+    globs: ["src/**"]
+---
+Body.
+EOF
+  assert_false "alwaysApply plus globs is refused for cursor" \
+    validate_item rule both common/rules/both.md cursor
+  assert_contains "the reason says alwaysApply wins" "takes precedence" \
+    "$(validate_item rule both common/rules/both.md cursor 2>&1)"
+
+  cat > "$fx/common/rules/badapply.md" <<'EOF'
+---
+name: badapply
+description: alwaysApply is not a boolean.
+assistants:
+  cursor:
+    alwaysApply: sometimes
+---
+Body.
+EOF
+  assert_false "a non-boolean alwaysApply is refused" \
+    validate_item rule badapply common/rules/badapply.md cursor
+
+  cat > "$fx/common/rules/blockseq.md" <<'EOF'
+---
+name: blockseq
+description: Activation list written as a block sequence.
+assistants:
+  cursor:
+    globs:
+      - src/**
+---
+Body.
+EOF
+  # A block sequence under an assistants: key reads as empty, so the key would be
+  # dropped and the rule installed with a wider scope than the author declared.
+  assert_false "a block-sequence globs list is refused" \
+    validate_item rule blockseq common/rules/blockseq.md cursor
+  assert_contains "the reason names the inline form" "inline" \
+    "$(validate_item rule blockseq common/rules/blockseq.md cursor 2>&1)"
+
+  REPO_DIR="$saved_repo"
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# init — the per-project context files, which are not items
+# ─────────────────────────────────────────────────────────────────────────────
+test_init() {
+  section "init: declared targets per assistant and scope"
+  local fx; fx=$(new_dir init)
+  local saved_home="$HOME"
+  mkdir -p "$fx/proj" "$fx/home"
+  HOME="$fx/home"
+
+  assert_eq "claude-code local targets the project CLAUDE.md" \
+    "claude-code/init/CLAUDE.md|$fx/proj/CLAUDE.md" \
+    "$(assistant_init_targets claude-code local "$fx/proj" | tr '\t' '|')"
+  assert_eq "claude-code global reads \$HOME at call time" \
+    "claude-code/init/CLAUDE.md|$fx/home/.claude/CLAUDE.md" \
+    "$(assistant_init_targets claude-code global "$fx/proj" | tr '\t' '|')"
+  assert_eq "copilot local targets .github/copilot-instructions.md" \
+    "copilot/init/copilot-instructions.md|$fx/proj/.github/copilot-instructions.md" \
+    "$(assistant_init_targets copilot local "$fx/proj" | tr '\t' '|')"
+  assert_eq "cursor local targets AGENTS.md" \
+    "cursor/init/AGENTS.md|$fx/proj/AGENTS.md" \
+    "$(assistant_init_targets cursor local "$fx/proj" | tr '\t' '|')"
+  assert_eq "copilot has no global target"  "" "$(assistant_init_targets copilot  global "$fx/proj")"
+  assert_eq "cursor has no global target"   "" "$(assistant_init_targets cursor   global "$fx/proj")"
+  assert_eq "windsurf has no global target" "" "$(assistant_init_targets windsurf global "$fx/proj")"
+
+  section "init: cursor and windsurf share one AGENTS.md"
+  local shared
+  shared=$(_init_collect "$(printf 'cursor\nwindsurf')" local "$fx/proj")
+  assert_eq "the shared target is collected once" "1" \
+    "$(printf '%s\n' "$shared" | wc -l | tr -d ' ')"
+  assert_contains "the target is AGENTS.md"      "$fx/proj/AGENTS.md" "$shared"
+  assert_contains "Cursor is named as an owner"   "Cursor"   "$shared"
+  assert_contains "Windsurf is named as an owner" "Windsurf" "$shared"
+  assert_eq "the two AGENTS.md templates are byte-identical" "0" \
+    "$(cmp -s "$REPO_DIR/cursor/init/AGENTS.md" "$REPO_DIR/windsurf/init/AGENTS.md"; printf '%s' "$?")"
+  assert_eq "an unselected assistant contributes nothing" "" \
+    "$(_init_collect "$(printf 'copilot')" global "$fx/proj")"
+
+  section "init: install_init_file writes whole files only"
+  local src="$fx/tpl.md" tgt="$fx/nested/deep/CONTEXT.md"
+  printf 'template body\n' > "$src"
+
+  assert_true "it creates the file and its parent directory" \
+    install_init_file "$src" "$tgt" ask
+  assert_eq "the content equals the template" "template body" "$(cat "$tgt")"
+
+  printf 'local edits\n' > "$tgt"
+  assert_true "skip returns 0 on an existing file" install_init_file "$src" "$tgt" skip
+  assert_eq   "skip leaves the content untouched" "local edits" "$(cat "$tgt")"
+
+  printf 'n\n' | install_init_file "$src" "$tgt" ask >/dev/null 2>&1
+  assert_eq "ask fed n leaves the content untouched" "local edits" "$(cat "$tgt")"
+
+  printf 'y\n' | install_init_file "$src" "$tgt" ask >/dev/null 2>&1
+  assert_eq "ask fed y replaces the content" "template body" "$(cat "$tgt")"
+
+  printf 'local edits\n' > "$tgt"
+  install_init_file "$src" "$tgt" overwrite >/dev/null 2>&1
+  assert_eq "overwrite replaces the content" "template body" "$(cat "$tgt")"
+
+  assert_false "a missing template is refused" \
+    install_init_file "$fx/nope.md" "$fx/never-written.md" overwrite
+  assert_false "and nothing is written" bash -c "[ -e '$fx/never-written.md' ]"
+
+  section "init: _init_write reports what it did"
+  local lines out
+  lines="claude-code/init/CLAUDE.md"$'\t'"$fx/proj/CLAUDE.md"$'\t'"Claude Code"
+  out=$(_init_write "$lines" overwrite 2>&1)
+  assert_true "the template is written" bash -c "[ -s '$fx/proj/CLAUDE.md' ]"
+  assert_contains "the summary counts the write" "1 written" "$out"
+
+  printf 'local edits\n' > "$fx/proj/CLAUDE.md"
+  out=$(_init_write "$lines" skip 2>&1)
+  assert_contains "an existing file is reported as left alone" "left alone" "$out"
+  assert_eq "and is not touched" "local edits" "$(cat "$fx/proj/CLAUDE.md")"
+
+  section "init: every declared template exists in the repo"
+  # Catches a renamed or moved template, which would otherwise only surface as a
+  # failed `ait init` in somebody else's project.
+  local a scope srcrel target missing=""
+  for a in $AIT_ASSISTANTS; do
+    for scope in local global; do
+      while IFS=$'\t' read -r srcrel target; do
+        [ -z "$srcrel" ] && continue
+        [ -f "$REPO_DIR/$srcrel" ] || missing+="$srcrel "
+      done < <(assistant_init_targets "$a" "$scope" "$fx/proj")
+    done
+  done
+  assert_eq "no assistant names a template that is missing" "" "$missing"
+
+  HOME="$saved_home"
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
 # golden — install everything, for real, and inspect the output
 # ─────────────────────────────────────────────────────────────────────────────
 test_golden() {
@@ -377,7 +668,7 @@ test_golden() {
   mkdir -p "$HOME" "$root/proj"
 
   for assistant in $AIT_ASSISTANTS; do
-    for type in agent skill hook; do
+    for type in $AIT_ITEM_TYPES; do
       while IFS=$'\t' read -r name rel; do
         [ -z "$name" ] && continue
         for scope in global local; do
@@ -395,6 +686,11 @@ test_golden() {
 
   # One Ruby pass over the whole tree. Per-file processes made this section slow
   # enough that it stopped being run, which is how the defects survived.
+  #
+  # The glob stays *.md and deliberately does not include *.mdc: a Cursor rule
+  # legitimately has no description — one would switch it to Agent Requested
+  # activation — so the nodesc assertion below would fail on it. Cursor rules are
+  # asserted on in the `rules` section instead.
   local report
   report=$(ruby -ryaml -e '
     root = ARGV[0]
@@ -452,24 +748,30 @@ test_golden() {
     bash -c "[ ! -d '$root/proj/.windsurf/agents' ]"
 
   section "golden: tool access never widens (regression)"
-  # code-reviewer declares Bash+Read. It must not gain 'edit' anywhere, and it
-  # must not be marked readonly either, because Bash can write via redirection.
+  # code-reviewer declares Bash+Read for Claude Code and execute+read for Copilot.
+  # It must not gain 'edit' anywhere, and it must not be marked readonly either,
+  # because Bash can write via redirection. The two lists are now written by hand
+  # and independently, so the loop below cross-checks that they agree on write
+  # access rather than checking a translation.
   local cop_tools; cop_tools=$(yaml_key "$cop" tools)
   case "$cop_tools" in
     *edit*) bad "code-reviewer gained edit on copilot" "no edit" "$cop_tools" ;;
     *)      ok  "code-reviewer keeps no write tool on copilot" ;;
   esac
-  local a src stools ctools
+  local a src cc_decl cop_decl ctools
   for a in "$root/proj/.github/agents"/*.agent.md; do
     [ -f "$a" ] || continue
     name=$(basename "$a" .agent.md)
     src="$REPO_DIR/common/agents/$name.md"
-    stools=$(fm_get_list "$src" tools)
+    cc_decl=$(assistant_config "$src" claude-code tools)
+    cop_decl=$(assistant_config "$src" copilot tools)
     ctools=$(yaml_key "$a" tools)
-    if [ -n "$stools" ] && [ "$ctools" = "KEY_MISSING" ]; then
-      bad "$name: source declares tools but copilot file omits them" "a tools list" "KEY_MISSING"
+    if [ -z "$cop_decl" ] || [ "$ctools" = "KEY_MISSING" ]; then
+      bad "$name: copilot tools must be declared and emitted" "a tools list" "${ctools}"
     fi
-    if ! printf '%s' "$stools" | grep -qE '^(Write|Edit|MultiEdit|NotebookEdit)$'; then
+    # Word boundaries, because the declaration is a bracketed comma list and
+    # NotebookRead must not read as a write tool.
+    if ! printf '%s' "$cc_decl" | grep -qE '(^|[^[:alnum:]])(Write|Edit|MultiEdit|NotebookEdit)([^[:alnum:]]|$)'; then
       case "$ctools" in
         *edit*) bad "$name: gained edit access on copilot" "no edit" "$ctools" ;;
       esac
@@ -707,9 +1009,12 @@ main() {
     install)  test_install ;;
     unit)     test_unit ;;
     validate) test_validate ;;
+    rules)    test_rules ;;
+    init)     test_init ;;
     golden)   test_golden ;;
     hooks)    test_hooks ;;
-    all)      test_syntax; test_install; test_unit; test_validate; test_golden; test_hooks ;;
+    all)      test_syntax; test_install; test_unit; test_validate
+              test_rules; test_init; test_golden; test_hooks ;;
     *)        printf 'unknown section: %s\n' "$want" >&2; exit 2 ;;
   esac
 

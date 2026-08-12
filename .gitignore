@@ -10,6 +10,13 @@
 .cursor/
 .windsurf/
 
+# What `ait init` writes when it is run from inside this repo. Each pattern is
+# anchored to the repo root, so the templates under claude-code/init/,
+# copilot/init/, cursor/init/ and windsurf/init/ stay tracked.
+/CLAUDE.md
+/AGENTS.md
+/.github/copilot-instructions.md
+
 # Standards repos cloned locally for context
 workspace/
 

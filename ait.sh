@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ait — AI Tools installer for Claude Code, Copilot, Cursor and Windsurf items.
-# Usage: ait [install|list|validate|update|help]
+# Usage: ait [install|init|list|validate|update|help]
 set -euo pipefail
 
 # ─── Resolve repo root (follows symlinks) ────────────────────────────────────
@@ -70,6 +70,12 @@ cmd_install() {
   run_wizard
 }
 
+# Pulls first, like cmd_install, so a stale template is never written.
+cmd_init() {
+  auto_pull
+  run_init_wizard
+}
+
 cmd_list() {
   auto_pull
   header "Available items"
@@ -77,7 +83,7 @@ cmd_list() {
   printf "%s\n" "──────────────────────────────────────────────────────────────────────"
 
   local type name rel_path
-  for type in agent skill hook; do
+  for type in $AIT_ITEM_TYPES; do
     while IFS=$'\t' read -r name rel_path; do
       [ -z "$name" ] && continue
       printf "%-8s  %-24s  ${DIM}%s${RESET}\n" \
@@ -112,6 +118,7 @@ ${BOLD}USAGE${RESET}
 
 ${BOLD}COMMANDS${RESET}
   install    4-step interactive installer ${DIM}(default)${RESET}
+  init       Create the per-project context file for an assistant
   list       List all available items and the assistants that support them
   validate   Lint every item; exits non-zero if any would install badly
   update     Pull latest from repo
@@ -120,10 +127,15 @@ ${BOLD}COMMANDS${RESET}
 ${BOLD}WIZARD STEPS${RESET}
   1. Assistant  Claude Code | Copilot | Cursor | Windsurf
   2. Scope      Global (home directory) | Local (current project)
-  3. Type       Agent | Skill | Hook ${DIM}(only what the assistant supports)${RESET}
+  3. Type       Agent | Skill | Rule | Hook ${DIM}(only what the assistant supports)${RESET}
   4. Items      Multi-select with SPACE, confirm with ENTER
 
   ESC goes back one step.  ESC on step 1 exits.
+
+${BOLD}INIT STEPS${RESET}
+  1. Assistant  Multi-select with SPACE, confirm with ENTER
+  2. Scope      Global (home directory) | Local (current project)
+  3. Confirm    Nothing is overwritten without an explicit y
 
 ${BOLD}REQUIREMENTS${RESET}
   jq ${DIM}(optional, brew install jq)${RESET}  auto hook wiring in settings.json
@@ -137,6 +149,7 @@ main() {
   shift || true
   case "$cmd" in
     install)        cmd_install ;;
+    init)           cmd_init ;;
     list)           cmd_list ;;
     validate)       cmd_validate ;;
     update)         cmd_update ;;

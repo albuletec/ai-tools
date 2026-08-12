@@ -1,10 +1,12 @@
 ---
 name: code-planner
 description: Plans implementations for any project following applicable standards. Use when starting any non-trivial feature, bug fix, or refactor. Reads the project's own docs and any local standards repos, then produces a plan at docs/plans/<slug>-<NNN>.md that code-writer and code-reviewer agents can consume.
-model: claude-opus-5
-tools: [Bash, Read, Write]
 assistants:
+  claude-code:
+    model: claude-opus-5
+    tools: [Bash, Read, Write]
   copilot:
+    tools: [execute, read, edit]
   cursor:
 ---
 

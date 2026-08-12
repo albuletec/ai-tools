@@ -73,9 +73,9 @@ assistant appears here with no other change.
 
 ### Step 3 — Type
 
-Choose Agent, Skill, or Hook. Only the types the chosen assistant actually supports are
+Choose Agent, Skill, Rule, or Hook. Only the types the chosen assistant actually supports are
 offered, and only when the repo has at least one item of that type for it — Hook is hidden for
-everything except Claude Code, and Agent is hidden for Windsurf.
+everything except Claude Code, Agent is hidden for Windsurf, and Rule is hidden for Copilot.
 
 ### Step 4 — Items
 
@@ -86,17 +86,63 @@ An item that would install badly for the chosen assistant is listed with a `✗`
 reason, and cannot be selected. Run `ait validate` to see every such reason across the whole
 repo at once.
 
+## Initialise a project
+
+`ait init` writes the per-project context file each assistant reads at the repo root. It is a
+separate command because that file is one per project rather than a list of items, so it does
+not fit the installer at all.
+
+```bash
+cd ~/Workspace/my-project
+ait init
+```
+
+```
+1. Assistant  →  2. Scope  →  3. Confirm
+```
+
+### Step 1 — Assistant
+
+Multi-select with `SPACE`, confirm with `ENTER`. Cursor and Windsurf both read `AGENTS.md`, so
+selecting both writes it once and the confirmation screen names both against that one file.
+
+### Step 2 — Scope
+
+Only Claude Code has a documented home-directory context file (`~/.claude/CLAUDE.md`). Pick
+Global with anything else selected and `ait init` says it has nothing to write there.
+
+| Assistant | Global | Local |
+|-----------|--------|-------|
+| Claude Code | `~/.claude/CLAUDE.md` | `CLAUDE.md` |
+| Copilot | — | `.github/copilot-instructions.md` |
+| Cursor | — | `AGENTS.md` |
+| Windsurf | — | `AGENTS.md` |
+
+### Step 3 — Confirm
+
+Every target is listed with the assistants that share it. On confirming, a file that does not
+exist yet is written straight away; an existing one prompts `overwrite {path}? [y/N]` and is
+left byte-identical unless you answer `y`. `ait init` only ever writes whole files — it never
+edits or appends to one you already have.
+
+The templates are copied verbatim, so every `{curly}` token in the result is a prompt for you
+to fill in rather than something `ait` resolved.
+
+Run it from the target project. Running it inside the `ai-tools` clone itself will write to
+this repo's own root.
+
 ## CLI commands
 
 ```bash
 ait              # interactive installer (same as `ait install`)
+ait init         # create the per-project context file for an assistant
 ait list         # show every item and which assistants support it
 ait validate     # lint every item; non-zero exit if any would install badly
 ait update       # pull the latest ai-tools without installing anything
 ait help         # usage
 ```
 
-Every `ait` command performs a `git pull --ff-only` first, so you are never installing a stale copy. If the pull fails (offline or local changes present), it warns and continues.
+Every `ait` command performs a `git pull --ff-only` first, so you are never installing a stale copy or writing a stale template. If the pull fails (offline or local changes present), it warns and continues.
 
 ## Make targets
 
@@ -107,4 +153,4 @@ make test        # run the test suite
 make update      # same as `ait update`
 ```
 
-There is no `make install` equivalent for installing items — `make` always runs from the repo directory, so a local install would land in the repo itself. Always run `ait` from the target project.
+There is no `make install` or `make init` equivalent — `make` always runs from the repo directory, so a local install or a new context file would land in the repo itself. Always run `ait` from the target project.

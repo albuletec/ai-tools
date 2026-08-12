@@ -1,10 +1,12 @@
 ---
 name: observability-reviewer
 description: Validates logging, metrics and tracing changes against the Gaming observability standards. Use after code-writer on any diff that touches log lines, metric instruments, OTel wiring, or alerting. Pass the list of changed files in the prompt. Cites the standards doc behind every finding.
-model: claude-opus-5
-tools: [Bash, Read]
 assistants:
+  claude-code:
+    model: claude-opus-5
+    tools: [Bash, Read]
   copilot:
+    tools: [execute, read]
   cursor:
 ---
 

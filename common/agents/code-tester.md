@@ -1,10 +1,12 @@
 ---
 name: code-tester
 description: Writes unit, integration, and end-to-end tests for existing or new code. Use when you need test coverage added, a test suite built out, or specific edge cases covered. Reads the implementation first, then writes tests that actually verify behavior rather than just exercising lines.
-model: claude-opus-5
-tools: [Bash, Read, Edit, Write]
 assistants:
+  claude-code:
+    model: claude-opus-5
+    tools: [Bash, Read, Edit, Write]
   copilot:
+    tools: [execute, read, edit]
   cursor:
 ---
 

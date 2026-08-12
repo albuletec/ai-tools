@@ -3,6 +3,12 @@
 #
 # Agents → <dir>/<name>.agent.md
 # Skills → <dir>/<name>/SKILL.md
+# Rules  → unsupported. Copilot's nearest equivalent is
+#          .github/instructions/<name>.instructions.md, which selects files with
+#          applyTo: and has its own precedence rules, so it is a different
+#          artifact from the rule directories Claude Code, Cursor and Windsurf
+#          read. Rule is absent from copilot_types() so the wizard never offers
+#          it; the branch in copilot_install is defence in depth for a direct call.
 # Hooks  → unsupported; Copilot has no tool-call event system.
 #
 # Skills are NOT installed as .prompt.md files. Copilot supports Anthropic-style
@@ -44,6 +50,17 @@ _copilot_dir() {
   esac
 }
 
+# The per-project context file. .github/copilot-instructions.md is a repository
+# file by definition, and no home-directory equivalent is as well documented as
+# ~/.claude/CLAUDE.md, so global scope emits nothing and `ait init` reports Copilot
+# as skipped there.
+# Usage: copilot_init_targets SCOPE PROJECT_DIR
+copilot_init_targets() {
+  local scope="$1" project_dir="$2"
+  [ "$scope" = "local" ] || return 0
+  printf 'copilot/init/copilot-instructions.md\t%s/.github/copilot-instructions.md\n' "$project_dir"
+}
+
 # Install a single item.
 # Usage: copilot_install NAME TYPE REL_PATH SCOPE PROJECT_DIR
 copilot_install() {
@@ -52,6 +69,10 @@ copilot_install() {
   case "$type" in
     agent) _copilot_write_agent "$name" "$rel_path" "$scope" "$project_dir" ;;
     skill) _copilot_write_skill "$name" "$rel_path" "$scope" "$project_dir" ;;
+    rule)
+      printf '  \033[33m!\033[0m  rule   →  skipped (%s): Copilot instructions files use applyTo: and are not modelled\n' "$name"
+      return 1
+      ;;
     hook)
       printf '  \033[33m!\033[0m  hook   →  skipped (%s): Copilot has no hook system\n' "$name"
       return 1
@@ -81,9 +102,10 @@ _copilot_opt() {
 # description is the only required key; model is optional and inherits the user's
 # default, so it's omitted unless the item sets one explicitly.
 #
-# tools is never omitted when the source declares one. Copilot treats an absent
-# tools key as "every tool enabled", so dropping an untranslatable name would
-# quietly widen the agent's access — validate.sh refuses the install instead.
+# tools comes only from assistants.copilot.tools, written in Copilot's own tool
+# names. There is no fallback to a top-level tools key: Copilot treats an absent
+# tools key as "every tool enabled", so an agent that opts into Copilot must
+# declare its own list — validate.sh refuses the install when it does not.
 
 _copilot_write_agent() {
   local name="$1" rel_path="$2" scope="$3" project_dir="$4"
@@ -94,14 +116,13 @@ _copilot_write_agent() {
 
   mkdir -p "$target_dir"
 
-  local description tools override_tools
+  local description tools=""
   description=$(fm_get "$src" description)
-  tools=$(translate_tools "$(fm_get_list "$src" tools)")
 
-  override_tools=$(assistant_config "$src" copilot tools)
-  if [ -n "$override_tools" ]; then
-    override_tools="${override_tools#[}"
-    tools="${override_tools%]}"
+  tools=$(assistant_config "$src" copilot tools)
+  if [ -n "$tools" ]; then
+    tools="${tools#[}"
+    tools="${tools%]}"
   fi
 
   {

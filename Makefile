@@ -13,7 +13,7 @@ help: ## Show this help
 install: ## Bootstrap: install the ait CLI to your PATH
 	@./install.sh
 
-list: ## List every agent, skill and hook, and the assistants that support them
+list: ## List every agent, skill, rule and hook, and the assistants that support them
 	@$(AIT) list
 
 validate: ## Lint every item for every assistant it opts into

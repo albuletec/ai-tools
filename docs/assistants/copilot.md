@@ -12,7 +12,14 @@ VS Code reads `.claude/agents/`, `.claude/skills/`, `~/.claude/skills/`, and `CL
 |------|-----------|
 | Agent | yes |
 | Skill | yes |
+| Rule | no — see below |
 | Hook | no |
+
+Copilot's nearest equivalent to a rule is `.github/instructions/{name}.instructions.md`, which
+selects files with `applyTo:` and has its own precedence relative to
+`.github/copilot-instructions.md`. That is a different artifact with different semantics, not
+the same one renamed, so `Rule` is absent from `copilot_types()`: the wizard never offers it,
+and a direct `copilot_install {name} rule ...` returns non-zero and writes nothing.
 
 ## Install paths
 
@@ -51,7 +58,7 @@ tools: [execute, read, edit]
 ---
 ```
 
-`name` comes from the file or directory name, and `description` is read as a YAML value and re-quoted, so a folded block scalar or a description containing a colon survives intact. `tools` is translated automatically from the Claude Code names. `model` is omitted unless explicitly set in the `assistants.copilot` block — Copilot inherits the user's default model otherwise.
+`name` comes from the file or directory name, and `description` is read as a YAML value and re-quoted, so a folded block scalar or a description containing a colon survives intact. `tools` comes from `assistants.copilot.tools`, written in Copilot's own names, and is required for agents. `model` is omitted unless explicitly set in the `assistants.copilot` block — Copilot inherits the user's default model otherwise.
 
 ### Per-assistant agent overrides
 
@@ -59,7 +66,7 @@ tools: [execute, read, edit]
 assistants:
   copilot:
     model: gpt-5
-    tools: [read, search]
+    tools: [execute, read, search]
     target: vscode
     user-invocable: false
     disable-model-invocation: true
@@ -68,7 +75,7 @@ assistants:
 | Key | Type | Notes |
 |-----|------|-------|
 | `model` | string | Copilot model ID. Omitted from frontmatter when absent. |
-| `tools` | list | Raw tool list — bypasses automatic translation entirely |
+| `tools` | list | The agent's tool list in Copilot names, inline on one line. Required for agents. |
 | `target` | string | `vscode` or `github-copilot`. Omitted when absent. |
 | `user-invocable` | bool | Whether the user can invoke this agent directly |
 | `disable-model-invocation` | bool | Prevent the model from invoking this agent |
@@ -104,11 +111,31 @@ assistants:
 | `disable-model-invocation` | bool | Prevent the model from invoking this skill |
 | `context` | string | How the skill is loaded. Assistant-specific, so it is only ever taken from the `assistants.copilot` block, never from a top-level `context`. |
 
-## Tool translation
+## Declaring Copilot tools
 
-Tools are written once in Claude Code terms and translated to Copilot's canonical aliases:
+An agent's Copilot tool list is written by hand under `assistants.copilot.tools`, in Copilot's
+own tool names, inline on one line:
 
-| Claude Code | Copilot |
+```yaml
+assistants:
+  copilot:
+    tools: [execute, read]
+```
+
+The value is emitted verbatim. Nothing is derived from another assistant's list, so if the
+agent's Claude Code list changes, change this one too.
+
+**An absent `tools` key means every tool is enabled**, per GitHub's own reference. That makes
+the omission an escalation rather than a narrowing, so `ait validate` refuses to install an
+agent that opts into Copilot without declaring a list.
+
+### Authoring hint: equivalent names
+
+Not a mapping the installer performs — just a starting point when writing a Copilot list next
+to a Claude Code one. The Copilot column holds the names GitHub documents as compatibility
+aliases for the Claude Code names beside them.
+
+| Claude Code name | Copilot equivalent |
 |-------------|---------|
 | `Bash`, `shell`, `powershell` | `execute` |
 | `Read`, `NotebookRead` | `read` |
@@ -118,17 +145,28 @@ Tools are written once in Claude Code terms and translated to Copilot's canonica
 | `WebFetch`, `WebSearch` | `web` |
 | `TodoWrite` | `todo` |
 
-Duplicates collapse — `[Bash, Read, Write, Edit]` becomes `[execute, read, edit]`. A source
-list is never widened: `tools: [Bash, Read]` becomes `[execute, read]` and gains no write
-alias.
+Several Claude Code names share one Copilot name, so a shorter Copilot list is normal —
+`[Bash, Read, Write, Edit]` is covered by `[execute, read, edit]`.
 
-**An absent `tools` key means every tool is enabled**, per GitHub's own reference. So a name
-with no alias — an MCP tool, `Skill`, `AskUserQuestion` — is never silently dropped, because
-dropping the last recognised name would leave the key absent and hand the agent everything.
-`ait validate` refuses the install and tells you to either drop the name or declare an
-explicit `assistants.copilot.tools` list.
+These pairings are taken from the [Copilot custom agents configuration reference](https://docs.github.com/en/copilot/reference/custom-agents-configuration).
 
-These pairings follow the documented compatibility aliases from the [Copilot custom agents configuration reference](https://docs.github.com/en/copilot/reference/custom-agents-configuration).
+## Project context file
+
+`ait init` writes the starter instructions file from
+`copilot/init/copilot-instructions.md`:
+
+| Scope | Target |
+|-------|--------|
+| Global | — no target offered |
+| Local | `.github/copilot-instructions.md` |
+
+`.github/` is created if it does not exist. There is no global target: the file is a repository
+file by definition, and no home-directory equivalent for Copilot is as well documented as
+`~/.claude/CLAUDE.md`, so `ait init` reports Copilot as skipped at global scope rather than
+guessing at a path nothing reads.
+
+The template is copied verbatim, so every `{curly}` token in the result is a prompt for you to
+fill in. An existing file is left byte-identical unless you answer `y` to the overwrite prompt.
 
 ## Placeholder substitution
 
@@ -140,7 +178,7 @@ All items in the repository opt into Copilot via `assistants: copilot:`.
 
 ### Agents
 
-| Name | Translated tools |
+| Name | Declared tools |
 |------|-----------------|
 | `code-planner` | `execute, read, edit` |
 | `code-reviewer` | `execute, read` |
@@ -160,9 +198,9 @@ All items in the repository opt into Copilot via `assistants: copilot:`.
 | `standards-check` | Fast compliance check against Gaming standards repos |
 | `update-workspace` | Pulls the three Gaming standards repos |
 
-### Hooks
+### Rules and hooks
 
-Hooks are not supported by Copilot.
+Neither is supported by Copilot.
 
 ## References
 

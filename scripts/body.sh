@@ -1,16 +1,23 @@
 #!/usr/bin/env bash
-# Frontmatter parsing, placeholder substitution, and cross-assistant translation.
+# Frontmatter parsing and placeholder substitution.
 #
 # Item files are written once, for all assistants. Two mechanisms keep them DRY:
 #
-#   1. assistants: block — opt-in to non-Claude assistants, with optional overrides.
+#   1. assistants: block — opt-in to non-Claude assistants, with per-assistant
+#      configuration.
 #        assistants:
-#          copilot:              # presence alone = supported, all defaults
-#          cursor:
-#            model: composer-2   # optional per-assistant override
+#          claude-code:
+#            tools: [Bash, Read]  # each assistant names its own tools
+#          copilot:
+#            tools: [execute, read]
+#          cursor:                # presence alone = supported, all defaults
+#            model: composer-2
 #
 #   2. {placeholder} tokens in the body, substituted per assistant.
 #        {instructionsFile} → CLAUDE.md (claude-code) | AGENTS.md (others)
+#
+# Tool names are never mapped between assistants: model and tools live under
+# assistants.{name} and are emitted in that assistant's own vocabulary.
 #
 # Claude Code ignores the assistants: block entirely, so adding it is non-breaking.
 #
@@ -205,96 +212,4 @@ instructions_file_for() {
 substitute_placeholders() {
   local assistant="$1"
   sed -e "s|{instructionsFile}|$(instructions_file_for "$assistant")|g"
-}
-
-# ─── Tool translation ─────────────────────────────────────────────────────────
-
-# Map one Claude Code tool name to its canonical Copilot alias.
-#
-# These pairings are the documented compatibility aliases, not our invention —
-# see the tools table in:
-#   https://docs.github.com/en/copilot/reference/custom-agents-configuration
-# Copilot accepts the Claude names directly, but we emit the canonical form so
-# the installed file reads natively.
-_translate_tool() {
-  case "$1" in
-    Bash|shell|powershell)             printf 'execute' ;;
-    Read|NotebookRead)                 printf 'read'    ;;
-    Edit|MultiEdit|Write|NotebookEdit) printf 'edit'    ;;
-    Grep|Glob)                         printf 'search'  ;;
-    Task)                              printf 'agent'   ;;
-    WebFetch|WebSearch)                printf 'web'     ;;
-    TodoWrite)                         printf 'todo'    ;;
-    *)                                 printf ''        ;;
-  esac
-}
-
-# Tools that grant write access to the workspace. Used to decide whether an
-# agent is read-only on assistants that have no per-tool list.
-_tool_is_write() {
-  case "$1" in
-    Edit|MultiEdit|Write|NotebookEdit) return 0 ;;
-    *)                                 return 1 ;;
-  esac
-}
-
-# Normalise a tools value into one name per line.
-# Accepts a newline-separated list, "[Bash, Read]", or "Bash, Read".
-_tool_lines() {
-  local raw="$1"
-  printf '%s' "$raw" | tr ',' '\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
-    -e 's/^\[//' -e 's/\]$//' | grep -v '^$' || true
-}
-
-# Names in the list that have no Copilot alias. Prints one per line.
-# A silently dropped name is the dangerous case: an empty tools list means
-# "all tools enabled" on Copilot, so the caller must refuse instead.
-unmapped_tools() {
-  local tool
-  while IFS= read -r tool; do
-    [[ -z "$tool" ]] && continue
-    [[ -z "$(_translate_tool "$tool")" ]] && printf '%s\n' "$tool"
-  done < <(_tool_lines "$1")
-  return 0
-}
-
-# Translate a Claude Code tools list into a deduplicated Copilot tools list.
-# Input:  "[Bash, Read, Write]"  → Output: "execute, read, edit"
-translate_tools() {
-  local out="" tool mapped
-  while IFS= read -r tool; do
-    [[ -z "$tool" ]] && continue
-    mapped=$(_translate_tool "$tool")
-    [[ -z "$mapped" ]] && continue
-    case ",$out," in
-      *",$mapped,"*) continue ;;   # Write and Edit both map to 'edit'
-    esac
-    [[ -n "$out" ]] && out+=","
-    out+="$mapped"
-  done < <(_tool_lines "$1")
-  printf '%s' "${out//,/, }"
-}
-
-# Tools that can reach the filesystem indirectly, so their presence means an
-# agent cannot be declared read-only even without an explicit write tool.
-# Bash can redirect into a file; Task and Skill can delegate to something that
-# writes; an unrecognised name (an MCP tool, say) is unknown and assumed capable.
-_tool_is_escape() {
-  case "$1" in
-    Bash|shell|powershell|Task|Skill) return 0 ;;
-    *) [[ -z "$(_translate_tool "$1")" ]] && return 0; return 1 ;;
-  esac
-}
-
-# True when a non-empty tools list grants no write access, directly or indirectly.
-# An empty list means "unrestricted", which is not read-only.
-tools_are_readonly() {
-  local tool any=1
-  while IFS= read -r tool; do
-    [[ -z "$tool" ]] && continue
-    any=0
-    _tool_is_write "$tool"  && return 1
-    _tool_is_escape "$tool" && return 1
-  done < <(_tool_lines "$1")
-  return $any
 }

@@ -23,6 +23,13 @@ PermissionDenied SessionStart Setup SessionEnd Notification SubagentStart
 SubagentStop PreCompact PostCompact ConfigChange DirectoryAdded FileChanged
 InstructionsLoaded UserPromptExpansion Elicitation ElicitationResult"
 
+# ─── Windsurf rule triggers ───────────────────────────────────────────────────
+#
+# Windsurf owns this vocabulary — it is the only assistant whose rules declare a
+# trigger. Taken from https://docs.devin.ai/desktop/cascade/memories.
+
+_AIT_RULE_TRIGGERS="always_on manual model_decision glob agent"
+
 _in_word_list() {
   local needle="$1" list="$2" word
   for word in $list; do
@@ -33,17 +40,9 @@ _in_word_list() {
 
 is_known_hook_event()     { _in_word_list "$1" "$_AIT_HOOK_EVENTS"; }
 event_supports_matcher()  { _in_word_list "$1" "$_AIT_MATCHER_EVENTS"; }
+is_known_rule_trigger()   { _in_word_list "$1" "$_AIT_RULE_TRIGGERS"; }
 
 # ─── Assistant capabilities ───────────────────────────────────────────────────
-
-# True when the assistant re-emits a per-tool list, so an untranslatable tool
-# name would silently widen the agent's access rather than narrow it.
-_assistant_translates_tools() {
-  case "$1" in
-    copilot) return 0 ;;
-    *)       return 1 ;;
-  esac
-}
 
 # True when the assistant requires name and description in the emitted file.
 _assistant_requires_name() {
@@ -51,6 +50,33 @@ _assistant_requires_name() {
     claude-code) return 1 ;;
     *)           return 0 ;;
   esac
+}
+
+# ─── Frontmatter shape probes ─────────────────────────────────────────────────
+
+# True when some line declares KEY with a value on the same line. Used to catch a
+# block sequence, which assistant_config and fm_get_raw both read as empty.
+# Usage: _fm_key_has_inline_value SRC KEY
+_fm_key_has_inline_value() {
+  get_frontmatter "$1" | grep -qE "^[[:space:]]*$2:[[:space:]]*[^[:space:]]"
+}
+
+# True when the frontmatter declares KEY at the top level, whatever its value.
+_fm_key_declared() {
+  get_frontmatter "$1" | grep -qE "^$2:"
+}
+
+# True when assistants.ASSISTANT declares KEY, whatever its value. Scoped exactly
+# the way assistant_config scopes its read, so the two agree on what is declared.
+# Usage: _assistant_key_declared SRC ASSISTANT KEY
+_assistant_key_declared() {
+  get_frontmatter "$1" | awk -v a="$2" -v k="$3" '
+    /^assistants:/                    { ina=1; next }
+    ina && /^[^[:space:]]/            { ina=0; intgt=0 }
+    ina && $0 ~ "^[[:space:]]+"a":"   { intgt=1; next }
+    intgt && /^[[:space:]][[:space:]][^[:space:]]/ { intgt=0 }
+    intgt && $0 ~ "^[[:space:]]+"k":" { found=1; exit }
+    END { exit !found }'
 }
 
 # ─── Validation ───────────────────────────────────────────────────────────────
@@ -108,16 +134,83 @@ validate_item() {
     problems=1
   fi
 
-  if [ "$type" = "agent" ] && _assistant_translates_tools "$assistant"; then
-    local tools unmapped
-    tools=$(fm_get_list "$src" tools)
-    if [ -n "$tools" ] && [ -z "$(assistant_config "$src" "$assistant" tools)" ]; then
-      unmapped=$(unmapped_tools "$tools" | paste -sd ', ' - | sed 's/,$//')
-      if [ -n "$unmapped" ]; then
-        printf 'no %s alias for: %s — omitting the tools list would grant every tool, so set assistants.%s.tools explicitly\n' \
-          "$assistant" "$unmapped" "$assistant"
+  if [ "$type" = "agent" ] && [ "$assistant" = "copilot" ]; then
+    if [ -z "$(assistant_config "$src" copilot tools)" ]; then
+      printf 'no assistants.copilot.tools declared — Copilot reads an absent tools key as every tool enabled, so declare the list inline in Copilot tool names\n'
+      problems=1
+    fi
+  fi
+
+  if [ "$type" = "rule" ]; then
+    _validate_rule "$src" "$assistant" || problems=1
+  fi
+
+  return $problems
+}
+
+# Rule activation checks, applied for one assistant only. The caller has already
+# established that the item opts into it, so there is no has_assistant call here.
+#
+# Claude Code imposes no activation requirement: a rule with no paths is valid and
+# always loads. Cursor and Windsurf both have activation keys that decide when the
+# rule fires, so a dropped or contradictory one is refused — a rule that installs
+# with a wider scope than its author declared is worse than one that fails loudly.
+# Usage: _validate_rule SRC ASSISTANT
+_validate_rule() {
+  local src="$1" assistant="$2" problems=0
+  local key
+
+  for key in paths globs; do
+    if _assistant_key_declared "$src" "$assistant" "$key" || _fm_key_declared "$src" "$key"; then
+      if ! _fm_key_has_inline_value "$src" "$key"; then
+        printf '"%s" is written as a block sequence, which is read as an empty value — the rule would install with a wider activation scope than intended; write it inline as %s: [a, b]\n' "$key" "$key"
         problems=1
       fi
+    fi
+  done
+
+  if [ "$assistant" = "cursor" ]; then
+    local always globs
+    always=$(assistant_config "$src" cursor alwaysApply)
+    globs=$(assistant_config "$src" cursor globs)
+    if [ -n "$always" ] && [ "$always" != "true" ] && [ "$always" != "false" ]; then
+      printf 'assistants.cursor.alwaysApply is "%s"; it must be true or false\n' "$always"
+      problems=1
+    fi
+    if [ "$always" = "true" ] && [ -n "$globs" ]; then
+      printf 'assistants.cursor.alwaysApply is true and globs is also set; alwaysApply takes precedence, so the globs would be silently ignored\n'
+      problems=1
+    fi
+  fi
+
+  if [ "$assistant" = "windsurf" ]; then
+    local trigger description globs
+    trigger=$(assistant_config "$src" windsurf trigger)
+    if [ -z "$trigger" ]; then
+      printf 'no assistants.windsurf.trigger declared; Windsurf needs one to know when the rule loads, and defaulting would choose an activation the author never asked for\n'
+      problems=1
+    elif ! is_known_rule_trigger "$trigger"; then
+      printf 'unknown assistants.windsurf.trigger "%s"; it must be one of: %s\n' \
+        "$trigger" "$_AIT_RULE_TRIGGERS"
+      problems=1
+    else
+      case "$trigger" in
+        model_decision|agent)
+          description=$(assistant_config "$src" windsurf description)
+          [ -z "$description" ] && description=$(fm_get "$src" description)
+          if [ -z "$description" ]; then
+            printf 'trigger "%s" needs a description for Windsurf to decide when to load the rule, but neither assistants.windsurf.description nor a top-level description is set\n' "$trigger"
+            problems=1
+          fi
+          ;;
+        glob)
+          globs=$(assistant_config "$src" windsurf globs)
+          if [ -z "$globs" ]; then
+            printf 'trigger "glob" needs assistants.windsurf.globs; without a pattern the rule would never fire\n'
+            problems=1
+          fi
+          ;;
+      esac
     fi
   fi
 
@@ -163,7 +256,7 @@ validate_repo() {
   local failures=0 checked=0
   local type name rel_path assistant src reasons
 
-  for type in agent skill hook; do
+  for type in $AIT_ITEM_TYPES; do
     while IFS=$'\t' read -r name rel_path; do
       [ -z "$name" ] && continue
       src=$(item_source_file "$rel_path")

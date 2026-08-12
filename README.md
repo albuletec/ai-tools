@@ -1,7 +1,7 @@
 # Artificial Intelligence Tools
 
-A single source of agents, skills, and hooks for AI coding assistants — write each tool once,
-install it into any project for whichever assistant you happen to be using.
+A single source of agents, skills, rules, and hooks for AI coding assistants — write each tool
+once, install it into any project for whichever assistant you happen to be using.
 
 Supported today: **Claude Code**, **GitHub Copilot**, **Cursor** and **Windsurf**.
 
@@ -78,20 +78,53 @@ Nothing is written until you confirm at the summary screen.
 
 ```bash
 ait              # interactive installer (same as `ait install`)
+ait init         # create the per-project context file for an assistant
 ait list         # show every item and which assistants support it
 ait validate     # lint every item; non-zero exit if any would install badly
 ait update       # pull the latest ai-tools without installing anything
 ait help         # usage
 ```
 
-`install`, `list` and `update` pull the repo first (fast-forward only), so you're never
-installing a stale copy. If the pull fails — offline, or you have local changes — it warns
-and continues.
+`install`, `init`, `list` and `update` pull the repo first (fast-forward only), so you're
+never installing a stale copy. If the pull fails — offline, or you have local changes — it
+warns and continues.
 
 Make targets: `make list`, `make validate`, `make test`, `make update`. There's deliberately
-no `make` equivalent of `ait install` — make always runs from this repo, so a local install
-would land here instead of in your project. Always run `ait` from the project you're
-installing into.
+no `make` equivalent of `ait install` or `ait init` — make always runs from this repo, so a
+local install or a new context file would land here instead of in your project. Always run
+`ait` from the project you're installing into. Running `ait init` from inside the `ai-tools`
+clone itself will write to this repo's own root; the three files it would land on there are
+gitignored so the tree stays clean, but it isn't what you want.
+
+### Initialise a project
+
+`ait init` writes the per-project context file each assistant reads at the repo root. That
+file is one per project rather than a list of composable items, so it isn't an item and
+doesn't go through the four-step installer.
+
+```
+1. Assistant (multi-select)  →  2. Scope  →  3. Confirm
+```
+
+| Assistant | Global | Local |
+|-----------|--------|-------|
+| Claude Code | `~/.claude/CLAUDE.md` | `CLAUDE.md` |
+| Copilot | — | `.github/copilot-instructions.md` |
+| Cursor | — | `AGENTS.md` |
+| Windsurf | — | `AGENTS.md` |
+
+Cursor and Windsurf share one `AGENTS.md`, so selecting both writes it once and the
+confirmation screen names both against that single file. Claude Code is the only assistant
+with a documented home-directory context file, so it's the only one with a global target;
+select another at global scope and `ait init` tells you it has nothing to write there.
+
+Templates are copied verbatim — every `{curly}` token in one is a prompt for you to fill in,
+not a placeholder `ait` resolves. An existing file is never overwritten without an explicit
+`y`, and `ait init` only ever writes whole files: it never edits or appends to one you
+already have.
+
+`.cursorrules` and `.windsurfrules` are legacy and are not written; `ait init` says so and
+writes `AGENTS.md` instead.
 
 ### Nothing installs unless it validates
 
@@ -103,7 +136,12 @@ that would install badly is listed in the wizard with its reason and can't be se
 - `description` is present
 - the item name is lowercase letters, numbers and hyphens, and any frontmatter `name`
   agrees with the file or directory name
-- every entry in `tools` has an alias for the target assistant
+- agents: one that opts into Copilot declares `assistants.copilot.tools`
+- rules: a Windsurf rule declares a `trigger` and it's one of the five real ones, with a
+  description when the trigger needs one and `globs` when it's `glob`; a Cursor rule doesn't
+  set both `alwaysApply: true` and `globs`, since the first wins and the second would be
+  ignored silently; and an activation list written as a block sequence is refused, because it
+  reads as empty and would install the rule with a wider scope than declared
 - hooks: the event is real, the timeout is a whole number, and a matcher only appears on an
   event that accepts one
 
@@ -117,11 +155,15 @@ Run `ait validate` to check the whole repo at once — that's what CI runs.
 |------|-----------|------------|
 | **Agent** | A specialised subagent with its own instructions and tool set | Claude Code, Copilot, Cursor |
 | **Skill** | A slash-command workflow | Claude Code, Copilot, Cursor, Windsurf |
+| **Rule** | A markdown file loaded into the assistant's context, always or on a condition | Claude Code, Cursor, Windsurf |
 | **Hook** | A shell script that intercepts tool calls | Claude Code only |
 
 Windsurf has no subagent format, so Agent is hidden when you pick it. Hooks are Claude Code
 only: Copilot and Windsurf have no tool-call event system, and Cursor's hooks are configured
-through `.cursor/hooks.json` rather than a settings file, which isn't modelled yet.
+through `.cursor/hooks.json` rather than a settings file, which isn't modelled yet. Rules
+exclude Copilot: its nearest equivalent, `.github/instructions/{name}.instructions.md`,
+selects files with `applyTo:` and has its own precedence, so it's a different artifact rather
+than the same one under another name.
 
 Run `ait list` to see the current inventory.
 
@@ -136,7 +178,13 @@ Run `ait list` to see the current inventory.
 | Skill | Copilot | `~/.copilot/skills/{name}/SKILL.md` | `.github/skills/{name}/SKILL.md` |
 | Skill | Cursor | `~/.cursor/skills/{name}/SKILL.md` | `.cursor/skills/{name}/SKILL.md` |
 | Skill | Windsurf | `~/.codeium/windsurf/skills/{name}/SKILL.md` | `.windsurf/skills/{name}/SKILL.md` |
+| Rule | Claude Code | `~/.claude/rules/{name}.md` | `.claude/rules/{name}.md` |
+| Rule | Cursor | `~/.cursor/rules/{name}.mdc` | `.cursor/rules/{name}.mdc` |
+| Rule | Windsurf | `~/.codeium/windsurf/rules/{name}.md` | `.windsurf/rules/{name}.md` |
 | Hook | Claude Code | `~/.claude/hooks/{name}.sh` | `.claude/hooks/{name}.sh` |
+
+A rule source file is always `.md`. The `.mdc` rename is Cursor-only and happens at install
+time, in `scripts/assistants/cursor.sh` and nowhere else.
 
 Supporting files in a skill directory are copied across too, subdirectories included — all
 four assistants read `scripts/`, `references/` and `assets/` relative to `SKILL.md`.
@@ -174,10 +222,12 @@ maintain a Copilot copy and a Claude copy of the same instructions.
 ---
 name: code-planner
 description: Plans implementations before any code is written.
-model: claude-opus-5
-tools: [Bash, Read, Write]
 assistants:
+  claude-code:
+    model: claude-opus-5
+    tools: [Bash, Read, Write]
   copilot:
+    tools: [execute, read, edit]
   cursor:
 ---
 
@@ -189,7 +239,8 @@ Read `{instructionsFile}` at the repo root before proposing changes.
 Two mechanisms keep it DRY:
 
 **1. The `assistants:` block — opt in per assistant.**
-Claude Code needs no entry; it's always supported. Any other assistant requires a key, so
+Claude Code needs no entry to be supported, so a `claude-code:` key is configuration rather
+than opt-in — it is where an agent's Claude Code `model` and `tools` live. Any other assistant requires a key, so
 support is explicit rather than accidental. The whole block is stripped on install, so no
 assistant ever sees another's configuration.
 
@@ -197,9 +248,12 @@ Per-item overrides go underneath:
 
 ```yaml
 assistants:
+  claude-code:
+    model: claude-opus-5           # agents only
+    tools: [Bash, Read]            # agents only — Claude Code's own tool names
   copilot:
     model: gpt-5                   # agents only
-    tools: [read, search]          # agents only — overrides automatic translation
+    tools: [execute, read]         # agents only — the list for this assistant, in its own names
     target: vscode                 # agents only — vscode | github-copilot
     mcp-servers: [jira]            # agents only
     argument-hint: "[pr-number]"   # skills only
@@ -208,7 +262,7 @@ assistants:
     disable-model-invocation: true
   cursor:
     model: composer-2              # agents only
-    readonly: true                 # agents only — overrides the derived value
+    readonly: true                 # agents only — declared explicitly
     is_background: true            # agents only
     paths: "src/**"                # skills only
 ```
@@ -231,44 +285,67 @@ Any other `{token}` is left alone, so you can write `{path}` or `{repo}` in pros
 `description` may be a folded or literal block scalar, a quoted string containing a colon,
 or a plain value continued across indented lines — all three collapse to one logical string
 before an assistant re-emits it, and the result is re-quoted so it stays valid YAML.
-`tools` accepts all three forms Claude Code allows:
+
+### Each assistant declares its own tools
+
+There is no shared tool list, because no two assistants name their tools the same way. Each
+one declares its own, under its own key:
 
 ```yaml
-tools: [Bash, Read]      # inline
-tools: Bash, Read        # comma-separated
-tools:                   # block sequence
-  - Bash
-  - Read
+assistants:
+  claude-code:
+    tools: [Bash, Read, Write]
+  copilot:
+    tools: [execute, read, edit]
 ```
 
-### Tool translation
+Nothing is mapped between them — each list is emitted verbatim into that assistant's file,
+so keeping them in step is yours to do. Write the list **inline on one line**: a block
+sequence under an `assistants:` key reads as an empty value and drops the restriction instead
+of applying it.
 
-Write tool names once in Claude Code terms:
-
-| You write | Copilot gets |
-|-----------|--------------|
-| `Bash` | `execute` |
-| `Read` | `read` |
-| `Write`, `Edit` | `edit` |
-| `Grep`, `Glob` | `search` |
-| `Task` | `agent` |
-| `WebFetch`, `WebSearch` | `web` |
-| `TodoWrite` | `todo` |
-
-Duplicates collapse — `[Bash, Read, Write, Edit]` becomes `[execute, read, edit]`.
-
-**A tool list is never widened.** Copilot treats an absent `tools` key as "every tool
-enabled", so a name with no alias — an MCP tool, say — is not silently dropped: the install
-is refused until you either remove it or state an explicit `assistants.copilot.tools` list.
+**An agent that opts into Copilot must declare `assistants.copilot.tools`.** Copilot treats
+an absent `tools` key as "every tool enabled", so `ait validate` refuses the install rather
+than let the omission hand the agent everything.
 
 Cursor subagents have no `tools` key at all; they inherit everything from the parent. The
-only lever is `readonly`, which is set automatically when a tool list grants no write access
-**and** no indirect route to one. `Bash`, `Task` and any unrecognised tool count as an
-indirect route, so an agent holding those is not marked read-only — it could write through
-a redirection or a delegate.
+only lever is `readonly: true`, declared as `assistants.cursor.readonly`. None of the shipped
+agents sets it — all of them hold a shell, and an agent that can redirect into a file was
+never read-only anyway.
 
 `model` is Claude Code-only and omitted elsewhere, since available models vary by
-subscription. Set `assistants.{name}.model` if a specific item needs one.
+subscription. Declare it as `assistants.claude-code.model`, or `assistants.{name}.model` if
+another assistant needs a specific one.
+
+### A rule declares its activation per assistant
+
+The three assistants that read rule directories don't share a vocabulary for *when* a rule
+loads, so activation lives under `assistants:` rather than at the top level:
+
+```markdown
+---
+name: typescript-conventions
+description: How TypeScript is written in this repo.
+paths: ["src/**/*.ts"]
+assistants:
+  cursor:
+    globs: ["src/**/*.ts"]
+  windsurf:
+    trigger: glob
+    globs: ["src/**/*.ts"]
+---
+
+Prefer named exports. Read `{instructionsFile}` for anything not covered here.
+```
+
+Claude Code takes `paths` (absent means always loaded, and a top-level `paths` carries over).
+Cursor picks one of four modes from which keys are present — `alwaysApply: true`,
+`globs`, `description`, or none of them for manual-only. Windsurf needs a `trigger`:
+`always_on`, `manual`, `model_decision`, `glob` or `agent`.
+
+A Cursor `description` is the one shared key that deliberately does **not** carry over from
+the top level, because on Cursor the mere presence of a description is what selects Agent
+Requested activation — inheriting it would change every rule's mode silently.
 
 ### Adding a new file
 
@@ -277,6 +354,7 @@ Drop it in the right directory and it appears in the menu — there's no registr
 ```
 common/agents/{name}.md              # agent
 common/skills/{name}/SKILL.md        # skill (supporting files and subdirectories are copied too)
+common/rules/{name}.md               # rule
 claude-code/hooks/{name}.sh          # hook
 ```
 
@@ -311,20 +389,22 @@ install.sh                one-time bootstrap — symlinks ait onto your PATH
 Makefile                  convenience targets
 common/agents/            agent definitions, shared across assistants
 common/skills/            skill definitions, shared across assistants
+common/rules/             rule definitions, shared across assistants
 claude-code/hooks/        hook scripts — Claude Code only
+claude-code/init/         CLAUDE.md starter template, written by `ait init`
 claude-code/settings.json reference Claude Code settings — not installed by ait
-copilot/                  Copilot-specific artifacts — none yet
-cursor/                   Cursor-specific artifacts — none yet
-windsurf/                 Windsurf-specific artifacts — none yet
+copilot/init/             .github/copilot-instructions.md starter template
+cursor/init/              AGENTS.md starter template
+windsurf/init/            AGENTS.md starter template — byte-identical to Cursor's
 tests/run.sh              test suite
 scripts/
-  body.sh                 frontmatter parsing, placeholders, tool translation
+  body.sh                 frontmatter parsing and placeholders
   registry.sh             the list of assistants and the dispatch to their scripts
   collect.sh              item discovery and assistant filtering
   validate.sh             the fail-closed checks, and the hook event tables
   install.sh              shared install helpers — not the bootstrap above
   menu.sh                 arrow-key menu engine
-  wizard.sh               the four-step flow
+  wizard.sh               the four-step install flow and the three-step init flow
   assistants/
     claude-code.sh        renders and installs for Claude Code
     copilot.sh            renders and installs for Copilot
@@ -334,7 +414,8 @@ scripts/
 
 Every item definition lives under `common/` and opts into an assistant through its own
 `assistants:` frontmatter block; a directory named after an assistant holds only that
-assistant's non-item artifacts.
+assistant's non-item artifacts — its hooks, its reference settings, and its `init/` template.
+A context file is not an item, so its template belongs to one assistant and lives there.
 
 `claude-code/settings.json` is a reference copy of a working Claude Code configuration —
 permissions plus the hook wiring these hooks expect. `ait` does not install it; copy the
@@ -358,7 +439,7 @@ Then opt items in with `assistants: {name}:`, and add a `{instructionsFile}` map
 
 ```bash
 make test              # everything
-tests/run.sh unit      # syntax | unit | validate | golden | hooks
+tests/run.sh unit      # syntax | install | unit | validate | rules | init | golden | hooks
 ```
 
 The suite installs every item for every assistant and scope into a temporary tree and
@@ -384,6 +465,8 @@ The file formats and frontmatter schemas this tool generates are taken from:
   precedence inversion versus agents
 - [Hooks](https://code.claude.com/docs/en/hooks) — event list, which events accept a
   `matcher`, `${CLAUDE_PROJECT_DIR}`, exit codes
+- [Memory](https://code.claude.com/docs/en/memory) — `CLAUDE.md` locations and the
+  `.claude/rules/` directory
 - [Settings](https://code.claude.com/docs/en/settings) — settings file locations and
   precedence
 
@@ -406,7 +489,12 @@ The file formats and frontmatter schemas this tool generates are taken from:
 - [Skills](https://cursor.com/docs/skills) — `SKILL.md` schema, skill locations, supporting
   directories
 
+- [Rules](https://cursor.com/docs/rules) — `.mdc` frontmatter, the four activation modes,
+  `AGENTS.md`
+
 **Windsurf**
 
 - [Skills](https://docs.devin.ai/desktop/cascade/skills) — `SKILL.md` schema and skill
   locations
+- [Memories and rules](https://docs.devin.ai/desktop/cascade/memories) — rule locations,
+  `trigger` values, `AGENTS.md` handling

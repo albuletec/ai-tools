@@ -8,6 +8,7 @@ Claude Code is the primary assistant. All artifact types are supported, and ever
 |------|-----------|
 | Agent | yes |
 | Skill | yes |
+| Rule | yes |
 | Hook | yes — Claude Code only |
 
 ## Install paths
@@ -16,6 +17,7 @@ Claude Code is the primary assistant. All artifact types are supported, and ever
 |------|--------|-------|
 | Agent | `~/.claude/agents/{name}.md` | `.claude/agents/{name}.md` |
 | Skill | `~/.claude/skills/{name}/SKILL.md` | `.claude/skills/{name}/SKILL.md` |
+| Rule | `~/.claude/rules/{name}.md` | `.claude/rules/{name}.md` |
 | Hook | `~/.claude/hooks/{name}.sh` | `.claude/hooks/{name}.sh` |
 
 Hooks are also wired into the matching `settings.json`:
@@ -27,7 +29,24 @@ Hooks are also wired into the matching `settings.json`:
 
 ## Agent frontmatter
 
-All standard frontmatter keys are passed through as-is. The `assistants:` block is stripped.
+This is the one assistant where the source file and the installed file differ in shape.
+
+In the **source** file, `model` and `tools` are Claude Code's own configuration, so they live
+under `assistants.claude-code`:
+
+```yaml
+---
+name: my-agent
+description: What this agent does.
+assistants:
+  claude-code:
+    model: claude-opus-5
+    tools: [Bash, Read, Write]
+---
+```
+
+In the **installed** file they are top-level keys, where Claude Code expects them, and the
+`assistants:` block is gone:
 
 ```yaml
 ---
@@ -38,9 +57,12 @@ tools: [Bash, Read, Write]
 ---
 ```
 
+Every other top-level key is passed through as-is, so any key Claude Code supports can be
+written at the top level and will arrive untouched.
+
 ### `model`
 
-Any valid Claude model ID. Current options:
+Set as `assistants.claude-code.model`. Any valid Claude model ID. Current options:
 
 | Model | ID |
 |-------|----|
@@ -51,7 +73,8 @@ Any valid Claude model ID. Current options:
 
 ### `tools`
 
-Claude Code tool names used directly:
+Set as `assistants.claude-code.tools`, inline on one line. Claude Code tool names used
+directly:
 
 `Bash`, `Read`, `Write`, `Edit`, `MultiEdit`, `Grep`, `Glob`, `Task`, `WebFetch`, `WebSearch`, `TodoWrite`, `NotebookRead`, `NotebookEdit`
 
@@ -73,6 +96,45 @@ No `model` or `tools` — skills load as instructions within the invoking contex
 ### Skill precedence
 
 **Inverted** compared to agents — a global skill (`~/.claude/skills/`) overrides a project-level one (`.claude/skills/`) of the same name. Installing a skill globally shadows the project's own version.
+
+## Rule frontmatter
+
+A rule installs as three keys at most:
+
+```yaml
+---
+name: logging-conventions
+description: "How this service logs, and which dimensions every line must carry."
+paths: ["src/**/*.ts"]
+---
+```
+
+| Key | Source | Notes |
+|-----|--------|-------|
+| `name` | the file name | Emitted for consistency with every other renderer; Claude Code ignores frontmatter keys it does not use |
+| `description` | top-level `description` | Read as a YAML value and re-quoted, so a folded scalar or an embedded colon survives |
+| `paths` | `assistants.claude-code.paths`, else a top-level `paths` | **Omitted entirely when neither is set — the rule then always loads** |
+
+`paths` is the only activation control. There is no requirement to declare one: a rule with no
+`paths` is valid and loads for every request, which is the common case.
+
+Unlike agents and skills, a rule is **not** passed through with its top-level keys intact. It
+is rendered explicitly, key by key, so that a `trigger:` or `globs:` written for Windsurf or
+Cursor cannot leak into the Claude Code file.
+
+## Project context file
+
+`ait init` writes the starter `CLAUDE.md` from `claude-code/init/CLAUDE.md`:
+
+| Scope | Target |
+|-------|--------|
+| Global | `~/.claude/CLAUDE.md` |
+| Local | `CLAUDE.md` at the project root |
+
+Claude Code is the only assistant with a documented home-directory context file, so it is the
+only one `ait init` offers a global target for. The template is copied verbatim — every
+`{curly}` token in the result is a prompt for you to fill in — and an existing file is left
+byte-identical unless you answer `y` to the overwrite prompt.
 
 ## Hook wiring
 
@@ -179,6 +241,11 @@ configuration: a read-only permission allowlist plus the wiring these five hooks
 | `pr-description` | Writes a PR description from the current branch's diff |
 | `standards-check` | Fast compliance check against Gaming standards repos |
 | `update-workspace` | Pulls the three Gaming standards repos |
+
+### Rules
+
+None yet. `common/rules/` ships with its format `README.md` only, so no `rule` rows appear in
+`ait list` until one is added.
 
 ### Hooks
 

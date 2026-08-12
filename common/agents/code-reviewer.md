@@ -1,10 +1,12 @@
 ---
 name: code-reviewer
 description: Reviews implementations against the plan and project standards. Use after code-writer has implemented a plan. Pass both the plan file path and the list of changed files in the prompt. Reports findings ranked by severity.
-model: claude-opus-5
-tools: [Bash, Read]
 assistants:
+  claude-code:
+    model: claude-opus-5
+    tools: [Bash, Read]
   copilot:
+    tools: [execute, read]
   cursor:
 ---
 

@@ -16,10 +16,12 @@ Drop the file here and it appears in the `ait` wizard immediately — no registr
 ---
 name: my-agent
 description: One-line description shown in the installer menu.
-model: claude-opus-5
-tools: [Bash, Read, Write]
 assistants:
+  claude-code:
+    model: claude-opus-5
+    tools: [Bash, Read, Write]
   copilot:
+    tools: [execute, read, edit]
 ---
 
 Agent system prompt goes here.
@@ -34,42 +36,40 @@ Agent system prompt goes here.
 
 ### Optional fields
 
-| Field | Notes |
-|-------|-------|
-| `model` | Claude model ID. Claude Code uses this; other assistants ignore it unless overridden in the `assistants:` block. |
-| `tools` | List of tools the agent may use, in Claude Code terms. Translated automatically per assistant. See [Tool translation](overview.md#3-tool-name-translation). |
+There is no optional top-level field for an agent. `model` and `tools` are per-assistant and
+live under `assistants:` — see [Tool list](#tool-list) below and
+[per-assistant `model` and `tools`](../overview.md#3-per-assistant-model-and-tools).
 
 ### Tool list
 
-Write tools in Claude Code terms once:
+Each assistant declares its own tools, under its own key, in its own names:
 
 ```yaml
-tools: [Bash, Read, Write, Edit, Grep, Glob, WebFetch, WebSearch, Task]
+assistants:
+  claude-code:
+    tools: [Bash, Read, Write, Edit, Grep, Glob, WebFetch, WebSearch, Task]
+  copilot:
+    tools: [execute, read, edit, search, web, agent]
 ```
 
-Write the list in any of the three forms Claude Code accepts — inline (`[Bash, Read]`),
-comma-separated (`Bash, Read`) or a block sequence — they are all parsed the same way.
+Nothing is mapped between the lists — each one is emitted verbatim into that assistant's
+installed file, so keeping them in step is your job.
 
-The installer deduplicates and translates per assistant. `Write` and `Edit` both become `edit`
-for Copilot, so the list collapses safely.
+Write the list **inline on one line**: `tools: [Bash, Read]`. A block sequence under an
+`assistants:` key reads as an empty value, which drops the restriction instead of applying
+it.
 
-### A tool list is never widened
+### Copilot needs a list; Cursor has no list at all
 
-Omitting `Write` and `Edit` means the agent gains no write alias on any assistant. Two things
-make that a real guarantee rather than a hope:
-
-- **Copilot reads an absent `tools` key as "every tool enabled."** So a name with no alias —
-  an MCP tool, `Skill`, `AskUserQuestion` — is never quietly dropped. If dropping it would
-  leave the key absent, `ait validate` refuses the install and asks you to either remove the
-  name or declare an explicit `assistants.copilot.tools` list.
+- **Copilot reads an absent `tools` key as "every tool enabled."** An agent that opts into
+  Copilot must declare `assistants.copilot.tools`, or `ait validate` refuses the install
+  rather than hand the agent every tool.
 - **Cursor subagents have no `tools` key at all** and inherit everything from the parent. The
-  only lever is `readonly`, which is derived from the list.
+  only lever is `readonly: true`, and it is declared as `assistants.cursor.readonly` — never
+  inferred from a tool list.
 
-Be careful about what "read-only" means, though. `readonly: true` is set only when the list
-grants no write access **and** no indirect route to one — `Bash` can write through a
-redirection, and `Task` can delegate to something that writes, so both disqualify it. None of
-the six shipped agents qualifies, because all of them hold `Bash`. An agent with shell access
-was never really read-only, on any assistant.
+None of the six shipped agents sets `readonly`, because all of them hold `Bash`. An agent
+with shell access was never really read-only, on any assistant.
 
 ## The `assistants:` block
 
@@ -84,23 +84,29 @@ Per-assistant overrides go under that key:
 
 ```yaml
 assistants:
+  claude-code:
+    model: claude-opus-5
+    tools: [Bash, Read]
   copilot:
     model: gpt-5
-    tools: [read, search]          # overrides automatic translation
+    tools: [execute, read, search]
     target: vscode                 # vscode | github-copilot
     user-invocable: false
     disable-model-invocation: true
 ```
 
+`claude-code`, `copilot` and `cursor` may each carry `model` and `tools`. For Claude Code the
+key is configuration only — the assistant is supported whether or not the block is there.
+
 | Override key | Type | Notes |
 |--------------|------|-------|
 | `model` | string | Assistant-specific model ID |
-| `tools` | list | Raw tool list for this assistant — skips automatic translation |
+| `tools` | list | The tool list for this assistant, in that assistant's own names |
 | `target` | string | Copilot target: `vscode` or `github-copilot` |
 | `user-invocable` | bool | Whether the agent can be invoked directly by the user |
 | `disable-model-invocation` | bool | Prevent the model from invoking this agent |
 | `mcp-servers` | list | Copilot only — extra MCP servers for the agent |
-| `readonly` | bool | Cursor only — overrides the value derived from `tools` |
+| `readonly` | bool | Cursor only — declared, not derived |
 | `is_background` | bool | Cursor only — run the subagent in the background |
 
 `user-invocable` and `disable-model-invocation` mean the same thing everywhere, so a
@@ -137,10 +143,12 @@ Windsurf has no subagent format, so agents are not installed for it at all — s
 ---
 name: code-planner
 description: Plans implementations before any code is written.
-model: claude-opus-5
-tools: [Bash, Read, Write]
 assistants:
+  claude-code:
+    model: claude-opus-5
+    tools: [Bash, Read, Write]
   copilot:
+    tools: [execute, read, edit]
 ---
 
 You are a senior software architect. Your sole output is a structured
