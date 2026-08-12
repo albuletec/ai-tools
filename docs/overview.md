@@ -150,4 +150,4 @@ skills/{name}/SKILL.md        # skill (flat .md also works)
 hooks/{name}.sh               # hook
 ```
 
-Assistants *are* registered, in one place: `AIT_ASSISTANTS` in `scripts/lib/registry.sh`.
+Assistants *are* registered, in one place: `AIT_ASSISTANTS` in `scripts/registry.sh`.

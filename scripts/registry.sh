@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Assistant registry — the single list of supported assistants.
 #
-# Adding an assistant is two changes: write scripts/lib/assistants/<name>.sh
+# Adding an assistant is two changes: write scripts/assistants/<name>.sh
 # exposing <name>_types(), <name>_install() and optionally <name>_label(), then
 # add its slug to AIT_ASSISTANTS below. The wizard, `ait list` and `ait validate`
 # all read this list, so there is nowhere else to remember.

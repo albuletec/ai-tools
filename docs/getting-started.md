@@ -61,7 +61,7 @@ Choose the AI coding assistant you are installing for:
 - **Cursor** — installs under `.cursor/` (local) or `~/.cursor/` (global)
 - **Windsurf** — installs under `.windsurf/` (local) or `~/.codeium/windsurf/` (global)
 
-The list comes from `AIT_ASSISTANTS` in `scripts/lib/registry.sh`, so a newly registered
+The list comes from `AIT_ASSISTANTS` in `scripts/registry.sh`, so a newly registered
 assistant appears here with no other change.
 
 ### Step 2 — Scope

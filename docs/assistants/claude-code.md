@@ -119,7 +119,7 @@ Re-running an install never duplicates an existing entry. If the entry cannot be
 ### Hook events
 
 There are 31 events, and most of them accept a `matcher` — not just the four tool events.
-The authoritative lists live in `scripts/lib/validate.sh` as `_AIT_HOOK_EVENTS` and
+The authoritative lists live in `scripts/validate.sh` as `_AIT_HOOK_EVENTS` and
 `_AIT_MATCHER_EVENTS`; the full table is in
 [adding a hook](../how-to/adding-a-hook.md#events).
 

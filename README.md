@@ -306,20 +306,20 @@ for the home directory.
 ## Layout
 
 ```
-ait                       CLI entry point
-install.sh                one-time bootstrap
+ait.sh                    CLI entry point — symlinked onto your PATH as `ait`
+install.sh                one-time bootstrap — symlinks ait onto your PATH
 Makefile                  convenience targets
 settings.json             reference Claude Code settings — not installed by ait
 agents/                   agent definitions
 skills/                   skill definitions
 hooks/                    hook scripts
 tests/run.sh              test suite
-scripts/lib/
+scripts/
   body.sh                 frontmatter parsing, placeholders, tool translation
   registry.sh             the list of assistants and the dispatch to their scripts
   collect.sh              item discovery and assistant filtering
   validate.sh             the fail-closed checks, and the hook event tables
-  install.sh              supporting-file copying, settings.json patching
+  install.sh              shared install helpers — not the bootstrap above
   menu.sh                 arrow-key menu engine
   wizard.sh               the four-step flow
   assistants/
@@ -337,9 +337,9 @@ parts you want into your own `~/.claude/settings.json`.
 
 Two changes, because the registry drives everything else:
 
-1. Write `scripts/lib/assistants/{name}.sh` with `{name}_types()`, `{name}_install()` and
+1. Write `scripts/assistants/{name}.sh` with `{name}_types()`, `{name}_install()` and
    optionally `{name}_label()`.
-2. Add the slug to `AIT_ASSISTANTS` in `scripts/lib/registry.sh`.
+2. Add the slug to `AIT_ASSISTANTS` in `scripts/registry.sh`.
 
 Then opt items in with `assistants: {name}:`, and add a `{instructionsFile}` mapping in
 `body.sh` if it doesn't read `AGENTS.md`. Full walkthrough:

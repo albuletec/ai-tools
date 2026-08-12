@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Shared install utilities: supporting-file copying, settings.json patching and
-# hook metadata parsing. Type-specific install logic lives in scripts/lib/assistants/.
+# hook metadata parsing. Type-specific install logic lives in scripts/assistants/.
 
 # Copy everything in a skill's source directory except SKILL.md, preserving
 # subdirectories. Skills bundle reference material in scripts/, references/ and

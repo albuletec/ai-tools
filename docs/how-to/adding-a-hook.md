@@ -72,7 +72,7 @@ one there would be invalid.
 | `WorktreeCreate` | no |
 | `WorktreeRemove` | no |
 
-Both lists live in `scripts/lib/validate.sh` as `_AIT_HOOK_EVENTS` and
+Both lists live in `scripts/validate.sh` as `_AIT_HOOK_EVENTS` and
 `_AIT_MATCHER_EVENTS`. If Claude Code adds an event, update them there — the docs and the
 validator should never disagree.
 

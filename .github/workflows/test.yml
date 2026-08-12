@@ -24,7 +24,7 @@ jobs:
           jq --version
 
       - name: Validate every item
-        run: ./ait validate
+        run: ./ait.sh validate
 
       - name: Run the test suite
         run: bash tests/run.sh

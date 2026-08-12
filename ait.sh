@@ -11,7 +11,7 @@ while [ -L "$_src" ]; do
   [[ "$_src" != /* ]] && _src="$_dir/$_src"
 done
 readonly REPO_DIR="$(cd "$(dirname "$_src")" && pwd)"
-readonly LIB_DIR="$REPO_DIR/scripts/lib"
+readonly SCRIPTS_DIR="$REPO_DIR/scripts"
 
 # ─── Colours (disabled when not a tty) ───────────────────────────────────────
 if [ -t 1 ]; then
@@ -30,24 +30,24 @@ header()  { printf "\n${BOLD}%s${RESET}\n" "$*"; }
 dim()     { printf "${DIM}%s${RESET}\n" "$*"; }
 
 # ─── Load library modules ─────────────────────────────────────────────────────
-# shellcheck source=scripts/lib/body.sh
-source "$LIB_DIR/body.sh"
-# shellcheck source=scripts/lib/registry.sh
-source "$LIB_DIR/registry.sh"
-# shellcheck source=scripts/lib/collect.sh
-source "$LIB_DIR/collect.sh"
-# shellcheck source=scripts/lib/install.sh
-source "$LIB_DIR/install.sh"
-# shellcheck source=scripts/lib/validate.sh
-source "$LIB_DIR/validate.sh"
-# shellcheck source=scripts/lib/menu.sh
-source "$LIB_DIR/menu.sh"
-# shellcheck source=scripts/lib/wizard.sh
-source "$LIB_DIR/wizard.sh"
+# shellcheck source=scripts/body.sh
+source "$SCRIPTS_DIR/body.sh"
+# shellcheck source=scripts/registry.sh
+source "$SCRIPTS_DIR/registry.sh"
+# shellcheck source=scripts/collect.sh
+source "$SCRIPTS_DIR/collect.sh"
+# shellcheck source=scripts/install.sh
+source "$SCRIPTS_DIR/install.sh"
+# shellcheck source=scripts/validate.sh
+source "$SCRIPTS_DIR/validate.sh"
+# shellcheck source=scripts/menu.sh
+source "$SCRIPTS_DIR/menu.sh"
+# shellcheck source=scripts/wizard.sh
+source "$SCRIPTS_DIR/wizard.sh"
 
 # Every registered assistant contributes one script, loaded by slug.
 for _assistant in $AIT_ASSISTANTS; do
-  _assistant_script="$LIB_DIR/assistants/$_assistant.sh"
+  _assistant_script="$SCRIPTS_DIR/assistants/$_assistant.sh"
   [ -f "$_assistant_script" ] || die "no script for registered assistant '$_assistant' (expected $_assistant_script)"
   # shellcheck source=/dev/null
   source "$_assistant_script"

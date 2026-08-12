@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
-# Installs the ait CLI by symlinking ./ait into ~/.local/bin.
+# Installs the ait CLI by symlinking ./ait.sh into ~/.local/bin as "ait".
 # Run once from the ai-tools repo: ./install.sh
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-AIT_SRC="$REPO_DIR/ait"
+AIT_SRC="$REPO_DIR/ait.sh"
 INSTALL_DIR="$HOME/.local/bin"
+
+# The source keeps its .sh extension so it looks like what it is next to the other
+# scripts, but the symlink deliberately drops it: what lands on your PATH is the
+# command you type, and you type `ait`. ait.sh resolves its own location by
+# following the symlink chain, so the two names never have to agree.
 INSTALL_PATH="$INSTALL_DIR/ait"
 
 # ─── Colours ─────────────────────────────────────────────────────────────────
@@ -16,7 +21,7 @@ warn()    { printf "${YELLOW}!${RESET}  %s\n" "$*"; }
 die()     { printf "\033[0;31merror:\033[0m %s\n" "$*" >&2; exit 1; }
 
 # ─── Checks ───────────────────────────────────────────────────────────────────
-[ -f "$AIT_SRC" ] || die "ait not found at $AIT_SRC"
+[ -f "$AIT_SRC" ] || die "ait.sh not found at $AIT_SRC"
 command -v git >/dev/null 2>&1 || die "git is required"
 
 printf "\n${BOLD}ait installer${RESET}\n\n"

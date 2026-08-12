@@ -1,4 +1,4 @@
-AIT := ./ait
+AIT := ./ait.sh
 
 .DEFAULT_GOAL := help
 

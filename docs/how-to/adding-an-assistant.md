@@ -9,7 +9,7 @@ nowhere else to remember.
 
 ## Step 1 — Write the assistant script
 
-Create `scripts/lib/assistants/{name}.sh`. The slug maps to a function prefix by replacing
+Create `scripts/assistants/{name}.sh`. The slug maps to a function prefix by replacing
 hyphens with underscores, so `claude-code` looks for `claude_code_types`.
 
 ### `{name}_types()` — required
@@ -156,18 +156,18 @@ myassistant_install() {
 
 ## Step 2 — Register the slug
 
-Add it to `AIT_ASSISTANTS` in `scripts/lib/registry.sh`:
+Add it to `AIT_ASSISTANTS` in `scripts/registry.sh`:
 
 ```bash
 AIT_ASSISTANTS="claude-code copilot cursor windsurf myassistant"
 ```
 
-`ait` sources `scripts/lib/assistants/{slug}.sh` for every slug in that list and fails
+`ait` sources `scripts/assistants/{slug}.sh` for every slug in that list and fails
 loudly at startup if the file is missing, so a typo cannot go unnoticed.
 
 ## Then
 
-- **Add a `{instructionsFile}` mapping** in `scripts/lib/body.sh` if the assistant does not
+- **Add a `{instructionsFile}` mapping** in `scripts/body.sh` if the assistant does not
   read `AGENTS.md`:
 
   ```bash
@@ -201,8 +201,8 @@ loudly at startup if the file is missing, so a typo cannot go unnoticed.
 
 ## Checklist
 
-- [ ] `scripts/lib/assistants/{name}.sh` with `{name}_types()` and `{name}_install()`
-- [ ] Slug added to `AIT_ASSISTANTS` in `scripts/lib/registry.sh`
+- [ ] `scripts/assistants/{name}.sh` with `{name}_types()` and `{name}_install()`
+- [ ] Slug added to `AIT_ASSISTANTS` in `scripts/registry.sh`
 - [ ] `description` written through `yaml_quote`
 - [ ] `copy_skill_support_files` called for skills
 - [ ] Tool restrictions preserved, or refused in `validate.sh`

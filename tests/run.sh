@@ -3,7 +3,7 @@
 # assertions (Ruby ships with macOS and every GitHub runner).
 #
 #   tests/run.sh            run everything
-#   tests/run.sh unit       run one section: unit | validate | golden | hooks
+#   tests/run.sh unit       run one section: syntax | install | unit | validate | golden | hooks
 #
 # Every case here maps to a real defect. Sections marked "regression" reproduce a
 # bug found in the 2026-08-12 audit and fail against the code that shipped it.
@@ -11,21 +11,21 @@
 set -uo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LIB_DIR="$REPO_DIR/scripts/lib"
+SCRIPTS_DIR="$REPO_DIR/scripts"
 
-# shellcheck source=../scripts/lib/body.sh
-source "$LIB_DIR/body.sh"
-# shellcheck source=../scripts/lib/registry.sh
-source "$LIB_DIR/registry.sh"
-# shellcheck source=../scripts/lib/collect.sh
-source "$LIB_DIR/collect.sh"
-# shellcheck source=../scripts/lib/install.sh
-source "$LIB_DIR/install.sh"
-# shellcheck source=../scripts/lib/validate.sh
-source "$LIB_DIR/validate.sh"
+# shellcheck source=../scripts/body.sh
+source "$SCRIPTS_DIR/body.sh"
+# shellcheck source=../scripts/registry.sh
+source "$SCRIPTS_DIR/registry.sh"
+# shellcheck source=../scripts/collect.sh
+source "$SCRIPTS_DIR/collect.sh"
+# shellcheck source=../scripts/install.sh
+source "$SCRIPTS_DIR/install.sh"
+# shellcheck source=../scripts/validate.sh
+source "$SCRIPTS_DIR/validate.sh"
 for a in $AIT_ASSISTANTS; do
   # shellcheck source=/dev/null
-  source "$LIB_DIR/assistants/$a.sh"
+  source "$SCRIPTS_DIR/assistants/$a.sh"
 done
 
 TMP_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/ait-tests.XXXXXX")
@@ -139,7 +139,7 @@ test_syntax() {
       failed=1
     fi
   done < <(
-    printf '%s\n' "$REPO_DIR/ait" "$REPO_DIR/install.sh"
+    printf '%s\n' "$REPO_DIR/ait.sh" "$REPO_DIR/install.sh"
     find "$REPO_DIR/scripts" "$REPO_DIR/hooks" "$REPO_DIR/tests" -name '*.sh' -type f | sort
   )
   [ "$failed" -eq 0 ] && ok "all scripts parse under /bin/bash"
@@ -150,6 +150,47 @@ test_syntax() {
     [ -x "$h" ] || nonexec+="$(basename "$h") "
   done
   assert_eq "every hook is executable" "" "$nonexec"
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# install — the bootstrap symlink
+# ─────────────────────────────────────────────────────────────────────────────
+test_install() {
+  section "install: bootstrap symlinks ait.sh as extensionless ait"
+  local root saved_home out
+  root=$(new_dir install)
+  saved_home="$HOME"
+
+  HOME="$root"
+  out=$(bash "$REPO_DIR/install.sh" 2>&1)
+  HOME="$saved_home"
+
+  local link="$root/.local/bin/ait"
+
+  assert_true  "creates ~/.local/bin/ait"        bash -c "[ -L '$link' ]"
+  assert_false "does not create ait.sh on PATH"  bash -c "[ -e '$root/.local/bin/ait.sh' ]"
+  assert_eq    "the link points at ait.sh"       "$REPO_DIR/ait.sh" "$(readlink "$link")"
+  assert_true  "the link target is executable"   bash -c "[ -x '$link' ]"
+
+  # The point of the rename: ait.sh resolves its own repo root by walking the
+  # symlink chain, so it must still find scripts/ when invoked under a different
+  # name from a different directory.
+  local help_out list_out
+  help_out=$(cd "$root" && "$link" help 2>&1)
+  assert_contains "invoking the link runs the CLI" "AI Tools installer" "$help_out"
+
+  list_out=$(cd "$root" && "$link" list 2>&1)
+  assert_contains "the link resolves scripts/ correctly" "code-planner" "$list_out"
+  assert_contains "and finds every assistant" "windsurf" "$list_out"
+
+  # Re-running must not stack up or leave the old name behind.
+  HOME="$root"
+  bash "$REPO_DIR/install.sh" >/dev/null 2>&1
+  HOME="$saved_home"
+  assert_eq "re-running leaves exactly one entry" "1" \
+    "$(find "$root/.local/bin" -maxdepth 1 -name 'ait*' | wc -l | tr -d ' ')"
+
+  assert_contains "reports where it installed to" ".local/bin/ait" "$out"
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -663,11 +704,12 @@ main() {
 
   case "$want" in
     syntax)   test_syntax ;;
+    install)  test_install ;;
     unit)     test_unit ;;
     validate) test_validate ;;
     golden)   test_golden ;;
     hooks)    test_hooks ;;
-    all)      test_syntax; test_unit; test_validate; test_golden; test_hooks ;;
+    all)      test_syntax; test_install; test_unit; test_validate; test_golden; test_hooks ;;
     *)        printf 'unknown section: %s\n' "$want" >&2; exit 2 ;;
   esac
 
