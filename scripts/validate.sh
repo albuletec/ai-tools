@@ -134,8 +134,21 @@ validate_item() {
     problems=1
   fi
 
+  if [ "$type" = "agent" ] && [ "$assistant" = "claude-code" ]; then
+    if _assistant_key_declared "$src" "claude-code" "tools"; then
+      if ! _fm_key_has_inline_value "$src" "tools"; then
+        printf '"tools" under assistants.claude-code is a block sequence, which reads as empty — the agent would install without tool restrictions; write it inline as tools: [Bash, Read]\n'
+        problems=1
+      fi
+    fi
+  fi
+
   if [ "$type" = "agent" ] && [ "$assistant" = "copilot" ]; then
-    if [ -z "$(assistant_config "$src" copilot tools)" ]; then
+    # Normalise [] → empty: _copilot_write_agent strips brackets, so [] and absent
+    # both produce no tools key in the installed file, granting every Copilot tool.
+    local _raw_tools
+    _raw_tools=$(assistant_config "$src" copilot tools | tr -d '[] ')
+    if [ -z "$_raw_tools" ]; then
       printf 'no assistants.copilot.tools declared — Copilot reads an absent tools key as every tool enabled, so declare the list inline in Copilot tool names\n'
       problems=1
     fi

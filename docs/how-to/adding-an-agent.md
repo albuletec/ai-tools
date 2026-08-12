@@ -109,8 +109,9 @@ key is configuration only — the assistant is supported whether or not the bloc
 | `readonly` | bool | Cursor only — declared, not derived |
 | `is_background` | bool | Cursor only — run the subagent in the background |
 
-`user-invocable` and `disable-model-invocation` mean the same thing everywhere, so a
-top-level value carries over automatically; restate one here only to differ.
+For agents every optional key must be declared inside the assistant block — there is no
+top-level carry-over. Skills behave differently: `user-invocable` and `disable-model-invocation`
+carry over from a top-level value in a skill; they do not in an agent.
 
 The entire `assistants:` block is stripped before the file is written to disk.
 
