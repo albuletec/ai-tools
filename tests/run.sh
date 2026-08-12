@@ -120,7 +120,7 @@ payload_write() {
 # Feed a JSON payload to a hook and report BLOCK (exit 2) or ALLOW.
 hook_result() {
   local hook="$1" payload="$2" rc
-  printf '%s' "$payload" | "$REPO_DIR/hooks/$hook" >/dev/null 2>&1
+  printf '%s' "$payload" | "$REPO_DIR/claude-code/hooks/$hook" >/dev/null 2>&1
   rc=$?
   [ "$rc" -eq 2 ] && printf 'BLOCK' || printf 'ALLOW'
 }
@@ -140,13 +140,13 @@ test_syntax() {
     fi
   done < <(
     printf '%s\n' "$REPO_DIR/ait.sh" "$REPO_DIR/install.sh"
-    find "$REPO_DIR/scripts" "$REPO_DIR/hooks" "$REPO_DIR/tests" -name '*.sh' -type f | sort
+    find "$REPO_DIR/scripts" "$REPO_DIR/claude-code/hooks" "$REPO_DIR/tests" -name '*.sh' -type f | sort
   )
   [ "$failed" -eq 0 ] && ok "all scripts parse under /bin/bash"
 
   # Hooks must also be executable, or Claude Code cannot run them.
   local h nonexec=""
-  for h in "$REPO_DIR"/hooks/*.sh; do
+  for h in "$REPO_DIR"/claude-code/hooks/*.sh; do
     [ -x "$h" ] || nonexec+="$(basename "$h") "
   done
   assert_eq "every hook is executable" "" "$nonexec"
@@ -308,55 +308,55 @@ test_validate() {
   local d; d=$(new_dir val)
   local saved_repo="$REPO_DIR"
   REPO_DIR="$d"
-  mkdir -p "$d/agents" "$d/skills" "$d/hooks"
+  mkdir -p "$d/common/agents" "$d/common/skills" "$d/claude-code/hooks"
 
   # regression: a body-only file installed as an 8-byte empty skill
-  printf 'body with no frontmatter\n' > "$d/skills/nofm.md"
-  assert_false "no frontmatter is refused" validate_item skill nofm skills/nofm.md claude-code
+  printf 'body with no frontmatter\n' > "$d/common/skills/nofm.md"
+  assert_false "no frontmatter is refused" validate_item skill nofm common/skills/nofm.md claude-code
   assert_contains "reason names the empty body" "install empty" \
-    "$(validate_item skill nofm skills/nofm.md claude-code 2>&1)"
+    "$(validate_item skill nofm common/skills/nofm.md claude-code 2>&1)"
 
-  printf -- '---\nname: emptybody\ndescription: Has a description but nothing else.\n---\n\n' > "$d/skills/emptybody.md"
-  assert_false "empty body is refused" validate_item skill emptybody skills/emptybody.md claude-code
+  printf -- '---\nname: emptybody\ndescription: Has a description but nothing else.\n---\n\n' > "$d/common/skills/emptybody.md"
+  assert_false "empty body is refused" validate_item skill emptybody common/skills/emptybody.md claude-code
 
-  printf -- '---\nname: nodesc\n---\nBody.\n' > "$d/skills/nodesc.md"
-  assert_false "missing description is refused" validate_item skill nodesc skills/nodesc.md copilot
+  printf -- '---\nname: nodesc\n---\nBody.\n' > "$d/common/skills/nodesc.md"
+  assert_false "missing description is refused" validate_item skill nodesc common/skills/nodesc.md copilot
 
-  printf -- '---\nname: Mixed_Case\ndescription: Not slug safe.\n---\nBody.\n' > "$d/skills/Mixed_Case.md"
-  assert_false "non-slug name refused for copilot" validate_item skill Mixed_Case skills/Mixed_Case.md copilot
-  assert_true  "non-slug name allowed for claude-code" validate_item skill Mixed_Case skills/Mixed_Case.md claude-code
+  printf -- '---\nname: Mixed_Case\ndescription: Not slug safe.\n---\nBody.\n' > "$d/common/skills/Mixed_Case.md"
+  assert_false "non-slug name refused for copilot" validate_item skill Mixed_Case common/skills/Mixed_Case.md copilot
+  assert_true  "non-slug name allowed for claude-code" validate_item skill Mixed_Case common/skills/Mixed_Case.md claude-code
 
-  printf -- '---\nname: something-else\ndescription: Name disagrees with the file.\n---\nBody.\n' > "$d/skills/mismatch.md"
-  assert_false "name/file mismatch is refused" validate_item skill mismatch skills/mismatch.md copilot
+  printf -- '---\nname: something-else\ndescription: Name disagrees with the file.\n---\nBody.\n' > "$d/common/skills/mismatch.md"
+  assert_false "name/file mismatch is refused" validate_item skill mismatch common/skills/mismatch.md copilot
   assert_contains "reason names both identities" "does not match" \
-    "$(validate_item skill mismatch skills/mismatch.md copilot 2>&1)"
+    "$(validate_item skill mismatch common/skills/mismatch.md copilot 2>&1)"
 
   # regression: unmappable tools were dropped, and an absent tools key means
   # "every tool enabled" on Copilot
   printf -- '---\nname: mcponly\ndescription: Uses an MCP tool.\ntools: [Read, mcp__jira__search]\n---\nBody.\n' \
-    > "$d/agents/mcponly.md"
-  assert_false "untranslatable tools refused for copilot" validate_item agent mcponly agents/mcponly.md copilot
+    > "$d/common/agents/mcponly.md"
+  assert_false "untranslatable tools refused for copilot" validate_item agent mcponly common/agents/mcponly.md copilot
   assert_contains "reason explains the escalation" "grant every tool" \
-    "$(validate_item agent mcponly agents/mcponly.md copilot 2>&1)"
-  assert_true "untranslatable tools fine for claude-code" validate_item agent mcponly agents/mcponly.md claude-code
-  assert_true "untranslatable tools fine for cursor" validate_item agent mcponly agents/mcponly.md cursor
+    "$(validate_item agent mcponly common/agents/mcponly.md copilot 2>&1)"
+  assert_true "untranslatable tools fine for claude-code" validate_item agent mcponly common/agents/mcponly.md claude-code
+  assert_true "untranslatable tools fine for cursor" validate_item agent mcponly common/agents/mcponly.md cursor
 
   printf -- '---\nname: overridden\ndescription: Declares an explicit copilot list.\ntools: [Read, mcp__jira__search]\nassistants:\n  copilot:\n    tools: [read]\n---\nBody.\n' \
-    > "$d/agents/overridden.md"
+    > "$d/common/agents/overridden.md"
   assert_true "explicit copilot tools override is accepted" \
-    validate_item agent overridden agents/overridden.md copilot
+    validate_item agent overridden common/agents/overridden.md copilot
 
-  printf '#!/usr/bin/env bash\n## ait:event    PreToolUse\n## ait:timeout  10s\necho\n' > "$d/hooks/badtime.sh"
-  assert_false "non-integer timeout is refused" validate_item hook badtime hooks/badtime.sh claude-code
+  printf '#!/usr/bin/env bash\n## ait:event    PreToolUse\n## ait:timeout  10s\necho\n' > "$d/claude-code/hooks/badtime.sh"
+  assert_false "non-integer timeout is refused" validate_item hook badtime claude-code/hooks/badtime.sh claude-code
 
-  printf '#!/usr/bin/env bash\n## ait:event    PreToolUsee\necho\n' > "$d/hooks/badevent.sh"
-  assert_false "unknown event is refused" validate_item hook badevent hooks/badevent.sh claude-code
+  printf '#!/usr/bin/env bash\n## ait:event    PreToolUsee\necho\n' > "$d/claude-code/hooks/badevent.sh"
+  assert_false "unknown event is refused" validate_item hook badevent claude-code/hooks/badevent.sh claude-code
 
-  printf '#!/usr/bin/env bash\n## ait:event    Stop\n## ait:matcher  Bash\necho\n' > "$d/hooks/badmatcher.sh"
-  assert_false "matcher on a non-matcher event is refused" validate_item hook badmatcher hooks/badmatcher.sh claude-code
+  printf '#!/usr/bin/env bash\n## ait:event    Stop\n## ait:matcher  Bash\necho\n' > "$d/claude-code/hooks/badmatcher.sh"
+  assert_false "matcher on a non-matcher event is refused" validate_item hook badmatcher claude-code/hooks/badmatcher.sh claude-code
 
-  printf '#!/usr/bin/env bash\n## ait:event    SessionStart\n## ait:matcher  startup\necho\n' > "$d/hooks/goodmatcher.sh"
-  assert_true "matcher on SessionStart is accepted" validate_item hook goodmatcher hooks/goodmatcher.sh claude-code
+  printf '#!/usr/bin/env bash\n## ait:event    SessionStart\n## ait:matcher  startup\necho\n' > "$d/claude-code/hooks/goodmatcher.sh"
+  assert_true "matcher on SessionStart is accepted" validate_item hook goodmatcher claude-code/hooks/goodmatcher.sh claude-code
 
   REPO_DIR="$saved_repo"
 
@@ -463,7 +463,7 @@ test_golden() {
   for a in "$root/proj/.github/agents"/*.agent.md; do
     [ -f "$a" ] || continue
     name=$(basename "$a" .agent.md)
-    src="$REPO_DIR/agents/$name.md"
+    src="$REPO_DIR/common/agents/$name.md"
     stools=$(fm_get_list "$src" tools)
     ctools=$(yaml_key "$a" tools)
     if [ -n "$stools" ] && [ "$ctools" = "KEY_MISSING" ]; then
@@ -547,7 +547,7 @@ EOF
   local before after
   before=$(ruby -rjson -e 'print JSON.parse(File.read(ARGV[0]))["hooks"].values.flatten.map{|e| e["hooks"].size}.sum' "$sp")
   HOME="$root/home"
-  claude_code_install secret-scrubber hook hooks/secret-scrubber.sh local "$root/proj" >/dev/null 2>&1
+  claude_code_install secret-scrubber hook claude-code/hooks/secret-scrubber.sh local "$root/proj" >/dev/null 2>&1
   HOME="$saved_home"
   after=$(ruby -rjson -e 'print JSON.parse(File.read(ARGV[0]))["hooks"].values.flatten.map{|e| e["hooks"].size}.sum' "$sp")
   assert_eq "re-install is idempotent" "$before" "$after"
@@ -661,7 +661,7 @@ CASES
   while IFS='|' read -r label text; do
     [ -z "$label" ] && continue
     out=$(printf '%s' "$(payload_write "x.ts" "$text")" \
-      | "$REPO_DIR/hooks/terminology-guard.sh" 2>&1)
+      | "$REPO_DIR/claude-code/hooks/terminology-guard.sh" 2>&1)
     # Count only real findings. Matching on "non-empty output" once let a shell
     # syntax error in the hook masquerade as fifteen passing rules.
     warnings=$(printf '%s\n' "$out" | grep -c '^terminology-guard: ')
@@ -692,7 +692,7 @@ CASES
   # contain the word, so the rule is quiet where it used to be noisy.
   local own_docs
   own_docs=$(printf '%s' "$(payload_write "README.md" "$(cat "$REPO_DIR/README.md")")" \
-    | "$REPO_DIR/hooks/terminology-guard.sh" 2>&1 | grep -c '^terminology-guard: ' || true)
+    | "$REPO_DIR/claude-code/hooks/terminology-guard.sh" 2>&1 | grep -c '^terminology-guard: ' || true)
   assert_eq "README.md produces no terminology warnings" "0" "$own_docs"
 }
 

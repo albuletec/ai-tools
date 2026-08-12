@@ -145,9 +145,9 @@ There is no registry for items. Drop a file in the right directory and it appear
 `ait` wizard immediately:
 
 ```
-agents/{name}.md              # agent
-skills/{name}/SKILL.md        # skill (flat .md also works)
-hooks/{name}.sh               # hook
+common/agents/{name}.md              # agent
+common/skills/{name}/SKILL.md        # skill (flat .md also works)
+claude-code/hooks/{name}.sh          # hook
 ```
 
 Assistants *are* registered, in one place: `AIT_ASSISTANTS` in `scripts/registry.sh`.

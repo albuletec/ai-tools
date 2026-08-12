@@ -18,30 +18,30 @@ _all_items_of_type() {
   local type="$1"
   case "$type" in
     agent)
-      for f in "$REPO_DIR"/agents/*.md; do
+      for f in "$REPO_DIR"/common/agents/*.md; do
         [ -f "$f" ] || continue
         name=$(basename "$f" .md)
-        printf '%s\tagents/%s.md\n' "$name" "$name"
+        printf '%s\tcommon/agents/%s.md\n' "$name" "$name"
       done
       ;;
     skill)
-      for f in "$REPO_DIR"/skills/*.md; do
+      for f in "$REPO_DIR"/common/skills/*.md; do
         [ -f "$f" ] || continue
         name=$(basename "$f" .md)
-        printf '%s\tskills/%s.md\n' "$name" "$name"
+        printf '%s\tcommon/skills/%s.md\n' "$name" "$name"
       done
-      for d in "$REPO_DIR"/skills/*/; do
+      for d in "$REPO_DIR"/common/skills/*/; do
         [ -d "$d" ] || continue
         [ -f "${d}SKILL.md" ] || continue
         name=$(basename "$d")
-        printf '%s\tskills/%s\n' "$name" "$name"
+        printf '%s\tcommon/skills/%s\n' "$name" "$name"
       done
       ;;
     hook)
-      for f in "$REPO_DIR"/hooks/*.sh; do
+      for f in "$REPO_DIR"/claude-code/hooks/*.sh; do
         [ -f "$f" ] || continue
         name=$(basename "$f" .sh)
-        printf '%s\thooks/%s.sh\n' "$name" "$name"
+        printf '%s\tclaude-code/hooks/%s.sh\n' "$name" "$name"
       done
       ;;
   esac

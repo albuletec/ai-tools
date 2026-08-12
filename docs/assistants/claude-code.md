@@ -147,7 +147,7 @@ Matchers are pipe-separated tool name patterns (`Write|Edit`).
 
 ## Reference settings.json
 
-`settings.json` at the repo root is a reference copy of a working Claude Code
+`claude-code/settings.json` is a reference copy of a working Claude Code
 configuration: a read-only permission allowlist plus the wiring these five hooks expect.
 `ait` does not install it — copy the parts you want into your own
 `~/.claude/settings.json`.

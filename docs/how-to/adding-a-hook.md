@@ -7,8 +7,11 @@ Copilot and Windsurf have no tool-call event system, and Cursor configures its h
 ## File location
 
 ```
-hooks/{name}.sh
+claude-code/hooks/{name}.sh
 ```
+
+They live under `claude-code/` because that is the only assistant that runs them; item
+definitions that every assistant can use live under `common/` instead.
 
 Drop the file here and it appears in the `ait` wizard immediately. The installer copies the
 script, sets it executable, and wires it into `settings.json` automatically (requires `jq`).

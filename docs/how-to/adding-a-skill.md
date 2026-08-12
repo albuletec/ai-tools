@@ -7,13 +7,13 @@ A skill is a slash-command workflow. The user (or the model) invokes it by name 
 Directory-based (preferred — supports supporting files):
 
 ```
-skills/{name}/SKILL.md
+common/skills/{name}/SKILL.md
 ```
 
 Flat file (no supporting files needed):
 
 ```
-skills/{name}.md
+common/skills/{name}.md
 ```
 
 Drop the file here and it appears in the `ait` wizard immediately — no registry to update. Any non-`SKILL.md` files in a directory-based skill folder are copied to the install target verbatim (reference data, lookup tables, palette files, etc.).
@@ -105,7 +105,7 @@ and `assets/` relative to `SKILL.md`, so a skill that bundles reference material
 unchanged wherever it lands:
 
 ```
-skills/dataviz/
+common/skills/dataviz/
   SKILL.md
   references/palette.md
   scripts/validate.py

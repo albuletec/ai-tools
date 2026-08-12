@@ -5,7 +5,7 @@ An agent is a specialised subagent with its own system prompt and tool set. It r
 ## File location
 
 ```
-agents/{name}.md
+common/agents/{name}.md
 ```
 
 Drop the file here and it appears in the `ait` wizard immediately — no registry to update.

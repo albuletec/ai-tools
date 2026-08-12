@@ -275,9 +275,9 @@ subscription. Set `assistants.{name}.model` if a specific item needs one.
 Drop it in the right directory and it appears in the menu — there's no registry to update.
 
 ```
-agents/{name}.md              # agent
-skills/{name}/SKILL.md        # skill (supporting files and subdirectories are copied too)
-hooks/{name}.sh               # hook
+common/agents/{name}.md              # agent
+common/skills/{name}/SKILL.md        # skill (supporting files and subdirectories are copied too)
+claude-code/hooks/{name}.sh          # hook
 ```
 
 Hooks declare their wiring in a comment header, read by the installer:
@@ -309,10 +309,13 @@ for the home directory.
 ait.sh                    CLI entry point — symlinked onto your PATH as `ait`
 install.sh                one-time bootstrap — symlinks ait onto your PATH
 Makefile                  convenience targets
-settings.json             reference Claude Code settings — not installed by ait
-agents/                   agent definitions
-skills/                   skill definitions
-hooks/                    hook scripts
+common/agents/            agent definitions, shared across assistants
+common/skills/            skill definitions, shared across assistants
+claude-code/hooks/        hook scripts — Claude Code only
+claude-code/settings.json reference Claude Code settings — not installed by ait
+copilot/                  Copilot-specific artifacts — none yet
+cursor/                   Cursor-specific artifacts — none yet
+windsurf/                 Windsurf-specific artifacts — none yet
 tests/run.sh              test suite
 scripts/
   body.sh                 frontmatter parsing, placeholders, tool translation
@@ -329,7 +332,11 @@ scripts/
     windsurf.sh           renders and installs for Windsurf
 ```
 
-`settings.json` at the root is a reference copy of a working Claude Code configuration —
+Every item definition lives under `common/` and opts into an assistant through its own
+`assistants:` frontmatter block; a directory named after an assistant holds only that
+assistant's non-item artifacts.
+
+`claude-code/settings.json` is a reference copy of a working Claude Code configuration —
 permissions plus the hook wiring these hooks expect. `ait` does not install it; copy the
 parts you want into your own `~/.claude/settings.json`.
 

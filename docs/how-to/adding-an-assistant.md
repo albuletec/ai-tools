@@ -36,7 +36,7 @@ did not install:
 myassistant_install() {
   local name="$1"        # item name, e.g. "code-planner"
   local type="$2"        # "agent" | "skill" | "hook"
-  local rel_path="$3"    # repo-relative path, e.g. "agents/code-planner.md"
+  local rel_path="$3"    # repo-relative path, e.g. "common/agents/code-planner.md"
   local scope="$4"       # "global" | "local"
   local project_dir="$5" # absolute path to the current project
 
