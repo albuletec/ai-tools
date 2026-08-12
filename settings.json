@@ -1,0 +1,113 @@
+{
+  "model": "claude-opus-4-8[1m]",
+  "theme": "dark",
+  "permissions": {
+    "allow": [
+      "Read",
+      "Edit",
+      "Write",
+      "WebFetch",
+      "WebSearch",
+      "NotebookEdit",
+      "Glob",
+      "Grep",
+      "Bash(git status*)",
+      "Bash(git log*)",
+      "Bash(git diff*)",
+      "Bash(git show*)",
+      "Bash(git branch*)",
+      "Bash(git remote*)",
+      "Bash(git fetch*)",
+      "Bash(git stash list*)",
+      "Bash(git ls-files*)",
+      "Bash(git grep*)",
+      "Bash(git -C * pull --ff-only)",
+      "Bash(ls*)",
+      "Bash(find*)",
+      "Bash(grep*)",
+      "Bash(rg*)",
+      "Bash(cat*)",
+      "Bash(head*)",
+      "Bash(tail*)",
+      "Bash(wc*)",
+      "Bash(sort*)",
+      "Bash(uniq*)",
+      "Bash(jq*)",
+      "Bash(sed*)",
+      "Bash(awk*)",
+      "Bash(echo*)",
+      "Bash(pwd)",
+      "Bash(which*)",
+      "Bash(date)",
+      "Bash(mkdir*)",
+      "Bash(chmod +x*)",
+      "Bash(cp *)",
+      "Bash(touch *)",
+      "Bash(diff *)",
+      "Bash(stat *)",
+      "Bash(cut *)",
+      "Bash(tr *)",
+      "Bash(realpath *)",
+      "Bash(basename *)",
+      "Bash(dirname *)",
+      "Bash(printf *)",
+      "Bash(command -v*)",
+      "Bash(type *)",
+      "Bash(yarn *)",
+      "Bash(pnpm *)",
+      "Bash(node *)",
+      "Bash(npx *)",
+      "Bash(corepack*)",
+      "Bash(python3 *)",
+      "Bash(docker compose config*)",
+      "Bash(docker compose -f * config*)",
+      "Bash(docker ps*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/secret-scrubber.sh",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/no-verify-guard.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/destructive-op-guard.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/terminology-guard.sh",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/lint-on-save.sh",
+            "timeout": 60
+          }
+        ]
+      }
+    ]
+  }
+}
