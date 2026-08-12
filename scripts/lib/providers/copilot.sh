@@ -29,13 +29,21 @@ _copilot_dir() {
     return
   fi
 
-  # Global — VS Code user profile directory
+  # Global — VS Code user profile directory.
+  #
+  # The VS Code docs give ~/.copilot/agents as the user-level location, but
+  # microsoft/vscode#305642 reports that as a documentation error: the folder
+  # actually picked up is the VS Code User profile directory. We use the latter
+  # and expose an override, since this is unresolved upstream.
   local vscode_user
-  case "$(uname -s)" in
-    Darwin) vscode_user="$HOME/Library/Application Support/Code/User" ;;
-    Linux)  vscode_user="$HOME/.config/Code/User" ;;
-    *)      vscode_user="$HOME/.config/Code/User" ;;
-  esac
+  if [ -n "${AIT_COPILOT_USER_DIR:-}" ]; then
+    vscode_user="$AIT_COPILOT_USER_DIR"
+  else
+    case "$(uname -s)" in
+      Darwin) vscode_user="$HOME/Library/Application Support/Code/User" ;;
+      *)      vscode_user="$HOME/.config/Code/User" ;;
+    esac
+  fi
 
   case "$type" in
     agent) printf '%s/agents'  "$vscode_user" ;;
@@ -112,16 +120,20 @@ _copilot_write_prompt() {
 
   mkdir -p "$target_dir"
 
-  local description mode model
+  # Prompt file frontmatter: description, name, argument-hint, agent, model, tools.
+  # There is no 'mode' property. 'agent' takes ask | agent | plan | <custom agent>
+  # and defaults to whichever agent is active, so we only emit it when the item
+  # asks for a specific one.
+  local description agent model
   description=$(fm_get "$src" description)
-  mode=$(provider_config "$src" copilot mode)
-  [ -z "$mode" ] && mode="agent"
+  agent=$(provider_config "$src" copilot agent)
   model=$(provider_config "$src" copilot model)
 
   {
     printf -- '---\n'
-    printf 'mode: %s\n' "$mode"
+    printf 'name: %s\n' "$name"
     printf 'description: %s\n' "$description"
+    [ -n "$agent" ] && printf 'agent: %s\n' "$agent"
     [ -n "$model" ] && printf 'model: %s\n' "$model"
     printf -- '---\n'
     get_body "$src" | substitute_placeholders copilot

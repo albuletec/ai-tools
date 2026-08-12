@@ -78,18 +78,23 @@ substitute_placeholders() {
 
 # ─── Tool translation ─────────────────────────────────────────────────────────
 
-# Map one Claude Code tool name to its Copilot-family alias.
-# Copilot aliases: execute, read, edit, search, agent, web, todo
+# Map one Claude Code tool name to its canonical Copilot alias.
+#
+# These pairings are the documented compatibility aliases, not our invention —
+# see the tools table in:
+#   https://docs.github.com/en/copilot/reference/custom-agents-configuration
+# Copilot accepts the Claude names directly, but we emit the canonical form so
+# the installed file reads natively.
 _translate_tool() {
   case "$1" in
-    Bash)                  printf 'execute' ;;
-    Read)                  printf 'read'    ;;
-    Write|Edit|NotebookEdit) printf 'edit'  ;;
-    Grep|Glob)             printf 'search'  ;;
-    Task)                  printf 'agent'   ;;
-    WebFetch|WebSearch)    printf 'web'     ;;
-    TodoWrite)             printf 'todo'    ;;
-    *)                     printf ''        ;;
+    Bash|shell|powershell)             printf 'execute' ;;
+    Read|NotebookRead)                 printf 'read'    ;;
+    Edit|MultiEdit|Write|NotebookEdit) printf 'edit'    ;;
+    Grep|Glob)                         printf 'search'  ;;
+    Task)                              printf 'agent'   ;;
+    WebFetch|WebSearch)                printf 'web'     ;;
+    TodoWrite)                         printf 'todo'    ;;
+    *)                                 printf ''        ;;
   esac
 }
 

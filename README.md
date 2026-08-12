@@ -110,7 +110,11 @@ Run `ait list` to see the current inventory.
 | Hook | Claude Code | `~/.claude/hooks/<name>.sh` | `.claude/hooks/<name>.sh` |
 
 `<VS Code User>` is `~/Library/Application Support/Code/User` on macOS,
-`~/.config/Code/User` on Linux.
+`~/.config/Code/User` on Linux. Override it with `AIT_COPILOT_USER_DIR` if your setup
+differs — the VS Code docs give `~/.copilot/agents` for user-level agents, but
+[microsoft/vscode#305642](https://github.com/microsoft/vscode/issues/305642) reports that
+as a documentation error and the User profile folder as the one actually picked up. This is
+unresolved upstream, so global Copilot installs are the least certain part of this tool.
 
 Hooks are also wired into the matching `settings.json` automatically, under the right event
 and matcher. Re-running an install won't duplicate an existing entry.
@@ -150,7 +154,8 @@ Per-item overrides go underneath:
 providers:
   copilot:
     model: gpt-5
-    mode: ask
+    agent: plan                    # skills only: ask | agent | plan | <custom agent>
+    tools: [read, search]          # overrides the automatic translation
     disable-model-invocation: true
 ```
 
@@ -225,3 +230,23 @@ scripts/lib/
 2. Source it in `ait` and add it to the provider menu in `scripts/lib/wizard.sh`.
 3. Add a `{instructionsFile}` mapping in `body.sh` if it differs.
 4. Add `providers: <name>:` to the items that should support it.
+
+---
+
+## References
+
+The Copilot file formats and frontmatter schemas this tool generates are taken from:
+
+- [Custom agents configuration](https://docs.github.com/en/copilot/reference/custom-agents-configuration)
+  — `.agent.md` schema and the canonical `tools` alias table
+- [Custom agents in VS Code](https://code.visualstudio.com/docs/agent-customization/custom-agents)
+  — workspace and user-level agent locations
+- [Use prompt files in VS Code](https://code.visualstudio.com/docs/copilot/customization/prompt-files)
+  — `.prompt.md` schema; note there is no `mode` property, it's `agent`
+- [Custom instructions in VS Code](https://code.visualstudio.com/docs/copilot/customization/custom-instructions)
+  — confirms `AGENTS.md`, `CLAUDE.md`, and `.github/copilot-instructions.md` are all read
+
+Worth knowing: VS Code reads `.claude/agents/` directly, and supports `CLAUDE.md` as well as
+`AGENTS.md`. So a Claude Code install is partly portable to VS Code on its own — the Copilot
+provider exists to produce native files with correctly-named tools rather than relying on
+that compatibility layer.
