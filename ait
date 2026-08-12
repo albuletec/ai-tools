@@ -10,7 +10,7 @@ while [ -L "$_src" ]; do
   _src="$(readlink "$_src")"
   [[ "$_src" != /* ]] && _src="$_dir/$_src"
 done
-readonly REPO_DIR="$(cd "$(dirname "$_src")/.." && pwd)"
+readonly REPO_DIR="$(cd "$(dirname "$_src")" && pwd)"
 readonly LIB_DIR="$REPO_DIR/scripts/lib"
 
 # ─── Colours (disabled when not a tty) ───────────────────────────────────────
@@ -30,17 +30,19 @@ header()  { printf "\n${BOLD}%s${RESET}\n" "$*"; }
 dim()     { printf "${DIM}%s${RESET}\n" "$*"; }
 
 # ─── Load library modules ─────────────────────────────────────────────────────
-# shellcheck source=lib/collect.sh
+# shellcheck source=scripts/lib/body.sh
+source "$LIB_DIR/body.sh"
+# shellcheck source=scripts/lib/collect.sh
 source "$LIB_DIR/collect.sh"
-# shellcheck source=lib/install.sh
+# shellcheck source=scripts/lib/install.sh
 source "$LIB_DIR/install.sh"
-# shellcheck source=lib/menu.sh
+# shellcheck source=scripts/lib/menu.sh
 source "$LIB_DIR/menu.sh"
-# shellcheck source=lib/wizard.sh
+# shellcheck source=scripts/lib/wizard.sh
 source "$LIB_DIR/wizard.sh"
-# shellcheck source=lib/providers/claude-code.sh
+# shellcheck source=scripts/lib/providers/claude-code.sh
 source "$LIB_DIR/providers/claude-code.sh"
-# shellcheck source=lib/providers/copilot.sh
+# shellcheck source=scripts/lib/providers/copilot.sh
 source "$LIB_DIR/providers/copilot.sh"
 
 # ─── Auto-pull ────────────────────────────────────────────────────────────────
@@ -62,14 +64,26 @@ cmd_install() {
 cmd_list() {
   auto_pull
   header "Available items"
-  printf "\n${BOLD}%-8s  %s${RESET}\n" "TYPE" "NAME"
-  printf "%s\n" "────────────────────────────"
+  printf "\n${BOLD}%-8s  %-24s  %s${RESET}\n" "TYPE" "NAME" "PROVIDERS"
+  printf "%s\n" "──────────────────────────────────────────────────────────"
 
-  local type
+  local type name rel_path src providers p
   for type in agent skill hook; do
-    collect_items_of_type "$type" | while IFS=$'\t' read -r name _path; do
-      printf "%-8s  %s\n" "$type" "$name"
-    done
+    while IFS=$'\t' read -r name rel_path; do
+      [ -z "$name" ] && continue
+      src=$(item_source_file "$rel_path")
+      providers=""
+      for p in claude-code copilot cursor windsurf; do
+        if [ "$type" = "hook" ] && [ "$p" != "claude-code" ]; then
+          continue
+        fi
+        if has_provider "$src" "$p"; then
+          [ -n "$providers" ] && providers+=", "
+          providers+="$p"
+        fi
+      done
+      printf "%-8s  %-24s  ${DIM}%s${RESET}\n" "$type" "$name" "$providers"
+    done < <(_all_items_of_type "$type")
   done
   printf "\n"
 }

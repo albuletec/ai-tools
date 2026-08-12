@@ -1,6 +1,8 @@
 ---
 name: pr-description
 description: Write a pull request description from the current branch's changes. Use when the user says "write a PR description", "open a PR", "describe these changes", or asks for a PR body.
+providers:
+  copilot:
 ---
 
 Produce a PR body from the actual diff. Gather context before writing a single line of it.
@@ -16,7 +18,7 @@ Produce a PR body from the actual diff. Gather context before writing a single l
 3. `git diff --stat {mergeBase}..HEAD` for shape, then `git diff {mergeBase}..HEAD` for substance.
 4. `git log --oneline {mergeBase}..HEAD` for the commit narrative.
 5. `git rev-parse --abbrev-ref HEAD` for the branch name — extract a ticket reference from it if one is encoded there.
-6. Discover the real test commands from `package.json` scripts, the equivalent manifest for the language in use, and the project's `CLAUDE.md` or contributing guide.
+6. Discover the real test commands from `package.json` scripts, the equivalent manifest for the language in use, and the project's `{instructionsFile}` or contributing guide.
 
 ## Output sections
 

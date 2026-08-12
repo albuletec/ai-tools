@@ -79,7 +79,7 @@ _load_types_for_provider() {
     local internal
     internal=$(_type_to_internal "$label")
     local count
-    count=$(collect_items_of_type "$internal" | wc -l | tr -d ' ')
+    count=$(collect_items_of_type "$internal" "$provider" | wc -l | tr -d ' ')
     if [[ "$count" -gt 0 ]]; then
       _WIZ_TYPE_DISPLAY+=("$label")
       _WIZ_TYPE_INTERNAL+=("$internal")
@@ -89,9 +89,9 @@ _load_types_for_provider() {
 
 # ─── Tool list loader ──────────────────────────────────────────────────────────
 
-# Populate _WIZ_TOOL_NAMES and _WIZ_TOOL_PATHS for a given type.
+# Populate _WIZ_TOOL_NAMES and _WIZ_TOOL_PATHS for a given type and provider.
 _load_tools_for_type() {
-  local type="$1"
+  local type="$1" provider="${2:-claude-code}"
   _WIZ_TOOL_NAMES=()
   _WIZ_TOOL_PATHS=()
 
@@ -99,7 +99,7 @@ _load_tools_for_type() {
     [[ -z "$name" ]] && continue
     _WIZ_TOOL_NAMES+=("$name")
     _WIZ_TOOL_PATHS+=("$path")
-  done < <(collect_items_of_type "$type")
+  done < <(collect_items_of_type "$type" "$provider")
 }
 
 # ─── "No items" notice ────────────────────────────────────────────────────────
@@ -206,7 +206,7 @@ run_wizard() {
         local bc4
         bc4=$(_breadcrumb "$provider" "$scope" "$type_label")
 
-        _load_tools_for_type "$type"
+        _load_tools_for_type "$type" "$provider"
 
         if [[ "${#_WIZ_TOOL_NAMES[@]}" -eq 0 ]]; then
           _show_notice "$bc4" "No $type items available yet."

@@ -1,6 +1,8 @@
 ---
 name: incident-runbook
 description: Structure an incident investigation or post-mortem. Use when the user mentions an incident, a post-mortem, "investigate this outage", or asks for a runbook write-up.
+providers:
+  copilot:
 ---
 
 Structure the investigation as the sections below. Everything is blameless: describe systems, signals, and decisions — never individuals, never roles used as a stand-in for individuals.
@@ -33,4 +35,4 @@ Where a fact is not established, write `{unknown — needs {source}}` rather tha
 - Blameless throughout. No names, no "the on-call should have".
 - Never fabricate data. `{unknown — needs {source}}` is a complete and acceptable answer.
 - Use `{curly}` placeholders.
-- Use TSA values for service names when the project `CLAUDE.md` or `gaming-context-docs/architecture/service-registry.md` is available — resolved as `workspace/gaming-context-docs/` then `$HOME/Workspace/gaming-context-docs/`. If neither is available, use the service name as the user gave it and note that the TSA was not verified.
+- Use TSA values for service names when the project `{instructionsFile}` or `gaming-context-docs/architecture/service-registry.md` is available — resolved as `workspace/gaming-context-docs/` then `$HOME/Workspace/gaming-context-docs/`. If neither is available, use the service name as the user gave it and note that the TSA was not verified.

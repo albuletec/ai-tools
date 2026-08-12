@@ -1,6 +1,8 @@
 ---
 name: standards-check
 description: Fast compliance check of changed files against the Gaming standards repos. Use when the user says "check standards compliance", "does this follow the standards", or "standards check". Cites the source repo and doc for every rule.
+providers:
+  copilot:
 ---
 
 A fast pass over the changed files against the standards docs. This is not a full review — it does not duplicate `code-reviewer` or `observability-reviewer` scope.
@@ -30,7 +32,7 @@ Check only the changed files — taken from the prompt, or from `git diff --name
 
 ## Checklist
 
-**(a) Terminology** — `gaming-context-docs` (`standards/naming/`, `concepts/`) plus `~/.claude/CLAUDE.md` § Terminology:
+**(a) Terminology** — `gaming-context-docs` (`standards/naming/`, `concepts/`) plus your global AI instructions § Terminology:
 - TSA — never TLA, Service ID, `app_id`, or `service_id`
 - `zone` — never a `dc` dimension
 - `supplier` — never `provider` (in prose; existing code identifiers are exempt)

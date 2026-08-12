@@ -1,6 +1,8 @@
 ---
 name: dependency-review
 description: Evaluate a third-party package before adopting it and produce a decision record. Use when the user says "review this dependency", "should we add this package", "new dependency", or proposes installing something.
+providers:
+  copilot:
 ---
 
 Produce a decision record for a proposed dependency. Investigation is read-only: query the registry and the repository, read the local manifests, and run nothing that mutates state.

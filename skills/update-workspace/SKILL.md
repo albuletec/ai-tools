@@ -1,6 +1,8 @@
 ---
 name: update-workspace
 description: Refresh the three local Gaming standards repos with a fast-forward-only pull and report per-repo status. Use when the user says "update workspace", "pull standards", "refresh the standards docs", or invokes "/update-workspace" — and before dispatching any agent or skill that cites the standards.
+providers:
+  copilot:
 ---
 
 You are the single owner of standards-repo freshness. No other agent or skill pulls these repos; they rely on you having run first.

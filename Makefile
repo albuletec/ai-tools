@@ -1,8 +1,8 @@
-AIT := ./scripts/ait
+AIT := ./ait
 
 .DEFAULT_GOAL := help
 
-.PHONY: help install run list update
+.PHONY: help install list update
 
 help: ## Show this help
 	@printf '\n\033[1mAI Tools\033[0m\n\n'
@@ -12,9 +12,6 @@ help: ## Show this help
 
 install: ## Bootstrap: install the ait CLI to your PATH
 	@./install.sh
-
-run: ## Open the interactive install menu (cd to your target project first)
-	@$(AIT) install
 
 list: ## List all available agents, skills, hooks, and Copilot items
 	@$(AIT) list

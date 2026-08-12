@@ -1,9 +1,20 @@
 #!/usr/bin/env bash
 # Item discovery — scans the repo and emits item records.
-# $REPO_DIR must be set by the caller.
+# Requires: has_provider (body.sh). $REPO_DIR must be set by the caller.
 
-# Output NAME<TAB>REL_PATH lines for a given type.
-collect_items_of_type() {
+# Absolute path to an item's primary markdown file.
+# Directory-based skills resolve to their SKILL.md.
+item_source_file() {
+  local rel_path="$1"
+  if [ -d "$REPO_DIR/$rel_path" ]; then
+    printf '%s/%s/SKILL.md' "$REPO_DIR" "$rel_path"
+  else
+    printf '%s/%s' "$REPO_DIR" "$rel_path"
+  fi
+}
+
+# Emit NAME<TAB>REL_PATH for every item of TYPE, unfiltered.
+_all_items_of_type() {
   local type="$1"
   case "$type" in
     agent)
@@ -14,13 +25,11 @@ collect_items_of_type() {
       done
       ;;
     skill)
-      # Single-file skills
       for f in "$REPO_DIR"/skills/*.md; do
         [ -f "$f" ] || continue
         name=$(basename "$f" .md)
         printf '%s\tskills/%s.md\n' "$name" "$name"
       done
-      # Directory-based skills (must contain SKILL.md)
       for d in "$REPO_DIR"/skills/*/; do
         [ -d "$d" ] || continue
         [ -f "${d}SKILL.md" ] || continue
@@ -38,12 +47,31 @@ collect_items_of_type() {
   esac
 }
 
-# Output the list of types that have at least one item available.
+# Emit NAME<TAB>REL_PATH for items of TYPE that support PROVIDER.
+# Hooks are Claude Code-only — no other provider has a tool-call event system.
+# Usage: collect_items_of_type TYPE [PROVIDER]
+collect_items_of_type() {
+  local type="$1" provider="${2:-claude-code}"
+
+  if [ "$type" = "hook" ] && [ "$provider" != "claude-code" ]; then
+    return
+  fi
+
+  local name rel_path
+  while IFS=$'\t' read -r name rel_path; do
+    [ -z "$name" ] && continue
+    if has_provider "$(item_source_file "$rel_path")" "$provider"; then
+      printf '%s\t%s\n' "$name" "$rel_path"
+    fi
+  done < <(_all_items_of_type "$type")
+}
+
+# Emit the types that have at least one item for PROVIDER.
 available_types() {
-  local type
+  local provider="${1:-claude-code}"
+  local type count
   for type in agent skill hook; do
-    local count
-    count=$(collect_items_of_type "$type" | wc -l | tr -d ' ')
+    count=$(collect_items_of_type "$type" "$provider" | wc -l | tr -d ' ')
     [ "$count" -gt 0 ] && printf '%s\n' "$type"
   done
 }

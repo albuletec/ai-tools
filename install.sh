@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Installs the ait CLI by symlinking scripts/ait into ~/.local/bin.
+# Installs the ait CLI by symlinking ./ait into ~/.local/bin.
 # Run once from the ai-tools repo: ./install.sh
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-AIT_SRC="$REPO_DIR/scripts/ait"
+AIT_SRC="$REPO_DIR/ait"
 INSTALL_DIR="$HOME/.local/bin"
 INSTALL_PATH="$INSTALL_DIR/ait"
 
@@ -16,7 +16,7 @@ warn()    { printf "${YELLOW}!${RESET}  %s\n" "$*"; }
 die()     { printf "\033[0;31merror:\033[0m %s\n" "$*" >&2; exit 1; }
 
 # ─── Checks ───────────────────────────────────────────────────────────────────
-[ -f "$AIT_SRC" ] || die "scripts/ait not found at $AIT_SRC"
+[ -f "$AIT_SRC" ] || die "ait not found at $AIT_SRC"
 command -v git >/dev/null 2>&1 || die "git is required"
 
 printf "\n${BOLD}ait installer${RESET}\n\n"
