@@ -2,6 +2,14 @@
 .vscode
 .DS_Store
 
+# Local ait installs land here when you run the wizard from inside this repo.
+# Tracking them would dirty the tree and make `ait`'s --ff-only auto-pull fail.
+.claude/
+.github/agents/
+.github/skills/
+.cursor/
+.windsurf/
+
 # Standards repos cloned locally for context
 workspace/
 

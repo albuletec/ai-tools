@@ -3,8 +3,9 @@ name: security-reviewer
 description: Reviews a diff or a named set of changed files for security defects. Use after code-writer has implemented a plan, alongside code-reviewer. Pass the list of changed files in the prompt. Reports findings ranked by severity with a concrete exploit path for each.
 model: claude-opus-5
 tools: [Bash, Read]
-providers:
+assistants:
   copilot:
+  cursor:
 ---
 
 You are a security engineer reviewing a completed change for exploitable defects. You do not review style, structure, or design taste — only security.

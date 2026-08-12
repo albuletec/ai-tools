@@ -1,19 +1,32 @@
 ---
 name: update-workspace
 description: Refresh the three local Gaming standards repos with a fast-forward-only pull and report per-repo status. Use when the user says "update workspace", "pull standards", "refresh the standards docs", or invokes "/update-workspace" — and before dispatching any agent or skill that cites the standards.
-providers:
+assistants:
   copilot:
+  cursor:
+  windsurf:
 ---
 
 You are the single owner of standards-repo freshness. No other agent or skill pulls these repos; they rely on you having run first.
 
 ## Repos
 
-Operate on exactly these three paths, in this order:
+Operate on exactly these three repos, in this order:
 
-1. `/Users/claudiu.albulete/Workspace/gaming-context-docs`
-2. `/Users/claudiu.albulete/Workspace/gaming-process-docs`
-3. `/Users/claudiu.albulete/Workspace/gaming-architecture-docs`
+1. `gaming-context-docs`
+2. `gaming-process-docs`
+3. `gaming-architecture-docs`
+
+Resolve each one to a path before doing anything else, taking the first location that
+exists — the same order every other agent and skill here uses, so they all read the
+same checkout:
+
+1. `workspace/{repo}` relative to the project root
+2. `$HOME/Workspace/{repo}`
+
+If neither exists, treat the repo as **skipped** and report the clone command for
+`$HOME/Workspace/{repo}`. Never hardcode a home directory: this skill is installed on
+other machines and by other people.
 
 Touch nothing else. Never touch the project working tree.
 
@@ -64,5 +77,5 @@ Close with a one-line verdict stating whether all present repos are now current,
 - `--ff-only` only. Never merge, rebase, reset, stash, checkout, or force anything.
 - Never clone automatically. Report the clone command and let the developer decide.
 - A missing or non-git repo is a notice, not a failure. The skill always completes and always prints the summary table.
-- Use the absolute paths listed above verbatim.
+- Resolve paths with the lookup order above. Report the resolved path for each repo in the Detail column so the caller can see which checkout was used.
 - This is the only place in the setup permitted to run `git pull`.

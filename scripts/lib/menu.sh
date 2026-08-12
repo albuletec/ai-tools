@@ -123,6 +123,10 @@ single_menu() {
 # multi_menu TITLE BREADCRUMB ITEM...
 # Sets MENU_RESULT to a newline-separated list of selected item labels.
 # Returns 0 on confirm, 1 on ESC.
+#
+# Reads _MENU_DISABLED — a space-separated list of item indices that cannot be
+# toggled. Disabled entries are still shown, so an item rejected by validation is
+# visible with its reason instead of vanishing from the list.
 multi_menu() {
   local title="$1" breadcrumb="$2"
   shift 2
@@ -130,6 +134,14 @@ multi_menu() {
   local count="${#items[@]}"
   local current=0
   local -a selected=()
+  local disabled=" ${_MENU_DISABLED:-} "
+
+  _is_disabled() {
+    case "$disabled" in
+      *" $1 "*) return 0 ;;
+      *)        return 1 ;;
+    esac
+  }
 
   while true; do
     menu_clear
@@ -145,7 +157,13 @@ multi_menu() {
         [[ "${selected[$j]}" -eq "$i" ]] && is_sel=1 && break
       done
 
-      if [[ "$i" -eq "$current" && "$is_sel" -eq 1 ]]; then
+      if _is_disabled "$i"; then
+        if [[ "$i" -eq "$current" ]]; then
+          printf '  \033[1;36m▶\033[0m \033[31m✗\033[0m  \033[2m%s\033[0m\n' "${items[$i]}"
+        else
+          printf '    \033[31m✗\033[0m  \033[2m%s\033[0m\n' "${items[$i]}"
+        fi
+      elif [[ "$i" -eq "$current" && "$is_sel" -eq 1 ]]; then
         printf '  \033[1;36m▶\033[0m \033[1;32m◉\033[0m  \033[1m%s\033[0m\n' "${items[$i]}"
       elif [[ "$i" -eq "$current" ]]; then
         printf '  \033[1;36m▶\033[0m \033[2m○\033[0m  \033[1m%s\033[0m\n' "${items[$i]}"
@@ -156,6 +174,9 @@ multi_menu() {
       fi
     done
 
+    if [[ -n "${_MENU_DISABLED:-}" ]]; then
+      printf '\n  \033[2m✗ items failed validation and cannot be selected\033[0m\n'
+    fi
     printf '\n  \033[2mSPACE toggle  ·  ENTER confirm  ·  ESC back\033[0m\n'
 
     local key
@@ -168,6 +189,7 @@ multi_menu() {
         [[ "$current" -lt $(( count - 1 )) ]] && current=$(( current + 1 )) || true
         ;;
       space)
+        _is_disabled "$current" && continue
         local already=0
         local -a new_sel=()
         local j

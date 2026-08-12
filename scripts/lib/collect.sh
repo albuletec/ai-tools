@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Item discovery — scans the repo and emits item records.
-# Requires: has_provider (body.sh). $REPO_DIR must be set by the caller.
+# Requires: has_assistant (body.sh), registry.sh. $REPO_DIR must be set by the caller.
 
 # Absolute path to an item's primary markdown file.
 # Directory-based skills resolve to their SKILL.md.
@@ -47,21 +47,33 @@ _all_items_of_type() {
   esac
 }
 
-# Emit NAME<TAB>REL_PATH for items of TYPE that support PROVIDER.
-# Hooks are Claude Code-only — no other provider has a tool-call event system.
-# Usage: collect_items_of_type TYPE [PROVIDER]
+# Emit NAME<TAB>REL_PATH for items of TYPE that ASSISTANT supports and opts into.
+# Usage: collect_items_of_type TYPE [ASSISTANT]
 collect_items_of_type() {
-  local type="$1" provider="${2:-claude-code}"
+  local type="$1" assistant="${2:-claude-code}"
 
-  if [ "$type" = "hook" ] && [ "$provider" != "claude-code" ]; then
-    return
-  fi
+  assistant_supports_type "$assistant" "$type" || return 0
 
   local name rel_path
   while IFS=$'\t' read -r name rel_path; do
     [ -z "$name" ] && continue
-    if has_provider "$(item_source_file "$rel_path")" "$provider"; then
+    if has_assistant "$(item_source_file "$rel_path")" "$assistant"; then
       printf '%s\t%s\n' "$name" "$rel_path"
     fi
   done < <(_all_items_of_type "$type")
+}
+
+# Assistants that support TYPE and that the item opts into, space-separated.
+# Usage: assistants_for_item TYPE REL_PATH
+assistants_for_item() {
+  local type="$1" rel_path="$2"
+  local src out="" a
+  src=$(item_source_file "$rel_path")
+  for a in $AIT_ASSISTANTS; do
+    assistant_supports_type "$a" "$type" || continue
+    has_assistant "$src" "$a" || continue
+    [ -n "$out" ] && out+=", "
+    out+="$a"
+  done
+  printf '%s' "$out"
 }

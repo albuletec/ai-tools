@@ -1,6 +1,6 @@
-# Claude Code Provider
+# Claude Code Assistant
 
-Claude Code is the primary provider. All artifact types are supported, and every item is Claude Code-compatible by default — no `providers:` entry is required.
+Claude Code is the primary assistant. All artifact types are supported, and every item is Claude Code-compatible by default — no `assistants:` entry is required.
 
 ## Supported artifact types
 
@@ -14,9 +14,9 @@ Claude Code is the primary provider. All artifact types are supported, and every
 
 | Type | Global | Local |
 |------|--------|-------|
-| Agent | `~/.claude/agents/<name>.md` | `.claude/agents/<name>.md` |
-| Skill | `~/.claude/skills/<name>/SKILL.md` | `.claude/skills/<name>/SKILL.md` |
-| Hook | `~/.claude/hooks/<name>.sh` | `.claude/hooks/<name>.sh` |
+| Agent | `~/.claude/agents/{name}.md` | `.claude/agents/{name}.md` |
+| Skill | `~/.claude/skills/{name}/SKILL.md` | `.claude/skills/{name}/SKILL.md` |
+| Hook | `~/.claude/hooks/{name}.sh` | `.claude/hooks/{name}.sh` |
 
 Hooks are also wired into the matching `settings.json`:
 
@@ -27,7 +27,7 @@ Hooks are also wired into the matching `settings.json`:
 
 ## Agent frontmatter
 
-All standard frontmatter keys are passed through as-is. The `providers:` block is stripped.
+All standard frontmatter keys are passed through as-is. The `assistants:` block is stripped.
 
 ```yaml
 ---
@@ -105,32 +105,35 @@ These are written into `settings.json` under `.hooks.<event>[]`:
 }
 ```
 
-Re-running an install never duplicates an existing entry.
+Re-running an install never duplicates an existing entry. If the entry cannot be written — no `jq`, a non-numeric timeout, or a `settings.json` that is not valid JSON — the installer reports the reason and returns non-zero rather than printing a success line.
 
 ### Hook command paths
 
 | Scope | `command` value |
 |-------|----------------|
-| Global | `$HOME/.claude/hooks/<name>.sh` |
-| Local | `${CLAUDE_PROJECT_DIR}/.claude/hooks/<name>.sh` |
+| Global | `$HOME/.claude/hooks/{name}.sh` |
+| Local | `${CLAUDE_PROJECT_DIR}/.claude/hooks/{name}.sh` |
 
-`$CLAUDE_PROJECT_DIR` is the documented Claude Code placeholder for the project root. A bare relative path is not used because it resolves against the working directory at run time.
+`${CLAUDE_PROJECT_DIR}` is the documented Claude Code placeholder for the project root. A bare relative path is not used because it resolves against the working directory at run time.
 
 ### Hook events
 
-| Event | Accepts matcher? |
-|-------|----------------|
-| `PreToolUse` | yes |
-| `PostToolUse` | yes |
-| `PostToolUseFailure` | yes |
-| `PermissionRequest` | yes |
-| `SessionStart` | no |
-| `SessionEnd` | no |
-| `UserPromptSubmit` | no |
-| `Stop` | no |
-| `StopFailure` | no |
-| `FileChanged` | no |
-| `ConfigChange` | no |
+There are 31 events, and most of them accept a `matcher` — not just the four tool events.
+The authoritative lists live in `scripts/lib/validate.sh` as `_AIT_HOOK_EVENTS` and
+`_AIT_MATCHER_EVENTS`; the full table is in
+[adding a hook](../how-to/adding-a-hook.md#events).
+
+Accept a matcher: `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `PermissionRequest`,
+`PermissionDenied`, `SessionStart`, `Setup`, `SessionEnd`, `Notification`, `SubagentStart`,
+`SubagentStop`, `PreCompact`, `PostCompact`, `ConfigChange`, `DirectoryAdded`, `FileChanged`,
+`InstructionsLoaded`, `UserPromptExpansion`, `Elicitation`, `ElicitationResult`.
+
+Do not: `UserPromptSubmit`, `PostToolBatch`, `Stop`, `StopFailure`, `TeammateIdle`,
+`TaskCreated`, `TaskCompleted`, `MessageDisplay`, `CwdChanged`, `WorktreeCreate`,
+`WorktreeRemove`.
+
+An event name that is not on the list at all is refused by `ait validate`, and so is a
+matcher set on an event that does not accept one.
 
 Matchers are pipe-separated tool name patterns (`Write|Edit`).
 
@@ -141,6 +144,13 @@ Matchers are pipe-separated tool name patterns (`Write|Edit`).
 | `0` | Allow |
 | `2` | Block (`PreToolUse` only) |
 | Other | Error; action proceeds |
+
+## Reference settings.json
+
+`settings.json` at the repo root is a reference copy of a working Claude Code
+configuration: a read-only permission allowlist plus the wiring these five hooks expect.
+`ait` does not install it — copy the parts you want into your own
+`~/.claude/settings.json`.
 
 ## Placeholder substitution
 

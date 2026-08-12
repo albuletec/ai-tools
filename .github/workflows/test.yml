@@ -1,0 +1,30 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    # macOS is not redundant here: it ships bash 3.2, which is where the parser
+    # quirks these scripts work around actually bite.
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show interpreter versions
+        run: |
+          /bin/bash --version | head -1
+          ruby --version
+          jq --version
+
+      - name: Validate every item
+        run: ./ait validate
+
+      - name: Run the test suite
+        run: bash tests/run.sh

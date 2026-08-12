@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
-# Claude Code provider.
+# Claude Code assistant.
 #
 # Agents → .claude/agents/<name>.md
 # Skills → .claude/skills/<name>/SKILL.md
 # Hooks  → .claude/hooks/<name>.sh, wired into settings.json
 #
-# The providers: block is stripped on install so Claude Code never sees
-# another provider's configuration.
+# Frontmatter is passed through verbatim so any key Claude Code supports keeps
+# working without a change here. Only the assistants: block is stripped, so
+# Claude Code never sees another assistant's configuration.
 #
 # Requires: REPO_DIR, body.sh, install.sh (parse_hook_meta, patch_settings_json)
+
+claude_code_label() { printf 'Claude Code'; }
 
 claude_code_types() {
   printf 'Agent\nSkill\nHook\n'
@@ -31,20 +34,21 @@ claude_code_install() {
     agent) _cc_write_agent "$name" "$rel_path" "$base/agents" ;;
     skill) _cc_write_skill "$name" "$rel_path" "$base/skills" ;;
     hook)  _cc_write_hook  "$name" "$rel_path" "$scope" "$base/hooks" "$settings_file" ;;
-    *)     printf '  \033[33m!\033[0m  Unknown type: %s\n' "$type" ;;
+    *)     printf '  \033[33m!\033[0m  Unknown type: %s\n' "$type"; return 1 ;;
   esac
 }
 
 # Rewrite an item file for Claude Code: keep Claude's own frontmatter keys,
-# drop the providers: block, substitute placeholders in the body.
+# drop the assistants: block, substitute placeholders in the body.
 _cc_render() {
   local src="$1"
 
   printf -- '---\n'
   get_frontmatter "$src" | awk '
-    /^providers:/          { inp=1; next }
-    inp && /^[[:space:]]/  { next }
-    inp && /^[^[:space:]]/ { inp=0 }
+    /^assistants:/         { ina=1; next }
+    ina && /^[[:space:]]/  { next }
+    ina && /^[[:space:]]*$/{ next }
+    ina && /^[^[:space:]]/ { ina=0 }
     { print }'
   printf -- '---\n'
   get_body "$src" | substitute_placeholders claude-code
@@ -63,13 +67,7 @@ _cc_write_skill() {
   mkdir -p "$target_dir/$name"
 
   if [ -d "$src" ]; then
-    # Copy supporting files verbatim, then render SKILL.md
-    local f
-    for f in "$src"/*; do
-      [ -f "$f" ] || continue
-      [ "$(basename "$f")" = "SKILL.md" ] && continue
-      cp "$f" "$target_dir/$name/"
-    done
+    copy_skill_support_files "$src" "$target_dir/$name"
     _cc_render "$src/SKILL.md" > "$target_dir/$name/SKILL.md"
   else
     _cc_render "$src" > "$target_dir/$name/SKILL.md"

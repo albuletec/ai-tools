@@ -1,8 +1,10 @@
 ---
 name: incident-runbook
 description: Structure an incident investigation or post-mortem. Use when the user mentions an incident, a post-mortem, "investigate this outage", or asks for a runbook write-up.
-providers:
+assistants:
   copilot:
+  cursor:
+  windsurf:
 ---
 
 Structure the investigation as the sections below. Everything is blameless: describe systems, signals, and decisions — never individuals, never roles used as a stand-in for individuals.

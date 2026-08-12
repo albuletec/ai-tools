@@ -1,8 +1,8 @@
-# Copilot Provider
+# Copilot Assistant
 
-GitHub Copilot is the second supported provider. Agents and skills are supported; hooks are not (Copilot has no tool-call interception system).
+GitHub Copilot is the second supported assistant. Agents and skills are supported; hooks are not (Copilot has no tool-call interception system).
 
-## Do you need this provider?
+## Do you need this assistant?
 
 VS Code reads `.claude/agents/`, `.claude/skills/`, `~/.claude/skills/`, and `CLAUDE.md` directly by default, so a Claude Code install is already largely visible to Copilot. Installing for Copilot gets you native filenames (`.agent.md`, `SKILL.md` in `.github/`) and correctly-named tools in the frontmatter rather than relying on VS Code's compatibility layer.
 
@@ -18,8 +18,8 @@ VS Code reads `.claude/agents/`, `.claude/skills/`, `~/.claude/skills/`, and `CL
 
 | Type | Global | Local |
 |------|--------|-------|
-| Agent | `~/.copilot/agents/<name>.agent.md` | `.github/agents/<name>.agent.md` |
-| Skill | `~/.copilot/skills/<name>/SKILL.md` | `.github/skills/<name>/SKILL.md` |
+| Agent | `~/.copilot/agents/{name}.agent.md` | `.github/agents/{name}.agent.md` |
+| Skill | `~/.copilot/skills/{name}/SKILL.md` | `.github/skills/{name}/SKILL.md` |
 
 Global scope targets `~/.copilot/`, the harness-agnostic tree the Agent Host reads. If you are on the older in-extension harness that reads the VS Code profile's `prompts/` folder, set `AIT_COPILOT_USER_DIR` to override the global base:
 
@@ -30,10 +30,10 @@ AIT_COPILOT_USER_DIR="$HOME/Library/Application Support/Code/User" ait
 
 ## Opting an item into Copilot
 
-Add a `copilot:` key under `providers:` in the item's frontmatter:
+Add a `copilot:` key under `assistants:` in the item's frontmatter:
 
 ```yaml
-providers:
+assistants:
   copilot:
 ```
 
@@ -51,12 +51,12 @@ tools: [execute, read, edit]
 ---
 ```
 
-`name` and `description` come from the source file. `tools` is translated automatically from the Claude Code names. `model` is omitted unless explicitly set in the `providers.copilot` block — Copilot inherits the user's default model otherwise.
+`name` comes from the file or directory name, and `description` is read as a YAML value and re-quoted, so a folded block scalar or a description containing a colon survives intact. `tools` is translated automatically from the Claude Code names. `model` is omitted unless explicitly set in the `assistants.copilot` block — Copilot inherits the user's default model otherwise.
 
-### Per-provider agent overrides
+### Per-assistant agent overrides
 
 ```yaml
-providers:
+assistants:
   copilot:
     model: gpt-5
     tools: [read, search]
@@ -86,15 +86,15 @@ description: What this skill does.
 
 Skills are installed as `SKILL.md`, **not** as `.prompt.md` prompt files. Copilot supports the Anthropic-style `SKILL.md` format natively. The VS Code docs state that agents on the Agent Host do not use prompt files, and VS Code ships a *Migrate Prompts* command that converts prompt files to skills.
 
-### Per-provider skill overrides
+### Per-assistant skill overrides
 
 ```yaml
-providers:
+assistants:
   copilot:
     argument-hint: "[pr-number]"
     user-invocable: false
     disable-model-invocation: true
-    context: selection
+    context: fork
 ```
 
 | Key | Type | Notes |
@@ -102,7 +102,7 @@ providers:
 | `argument-hint` | string | Hint shown in the slash-command picker |
 | `user-invocable` | bool | Whether the user can invoke this skill directly |
 | `disable-model-invocation` | bool | Prevent the model from invoking this skill |
-| `context` | string | Copilot context type passed to the skill |
+| `context` | string | How the skill is loaded. Assistant-specific, so it is only ever taken from the `assistants.copilot` block, never from a top-level `context`. |
 
 ## Tool translation
 
@@ -118,7 +118,15 @@ Tools are written once in Claude Code terms and translated to Copilot's canonica
 | `WebFetch`, `WebSearch` | `web` |
 | `TodoWrite` | `todo` |
 
-Duplicates collapse — `[Bash, Read, Write, Edit]` becomes `[execute, read, edit]`. A read-only agent (`tools: [Bash, Read]`) translates to `[execute, read]` and never gains write access.
+Duplicates collapse — `[Bash, Read, Write, Edit]` becomes `[execute, read, edit]`. A source
+list is never widened: `tools: [Bash, Read]` becomes `[execute, read]` and gains no write
+alias.
+
+**An absent `tools` key means every tool is enabled**, per GitHub's own reference. So a name
+with no alias — an MCP tool, `Skill`, `AskUserQuestion` — is never silently dropped, because
+dropping the last recognised name would leave the key absent and hand the agent everything.
+`ait validate` refuses the install and tells you to either drop the name or declare an
+explicit `assistants.copilot.tools` list.
 
 These pairings follow the documented compatibility aliases from the [Copilot custom agents configuration reference](https://docs.github.com/en/copilot/reference/custom-agents-configuration).
 
@@ -128,7 +136,7 @@ These pairings follow the documented compatibility aliases from the [Copilot cus
 
 ## Current items
 
-All items in the repository opt into Copilot via `providers: copilot:`.
+All items in the repository opt into Copilot via `assistants: copilot:`.
 
 ### Agents
 

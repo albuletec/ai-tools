@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# GitHub Copilot provider (VS Code, JetBrains, Copilot CLI, cloud agent).
+# GitHub Copilot assistant (VS Code, JetBrains, Copilot CLI, cloud agent).
 #
 # Agents → <dir>/<name>.agent.md
 # Skills → <dir>/<name>/SKILL.md
@@ -17,7 +17,9 @@
 # older in-extension harness instead reads the VS Code profile's prompts folder;
 # set AIT_COPILOT_USER_DIR to target that if you're on the local harness.
 #
-# Requires: REPO_DIR, body.sh, collect.sh (item_source_file)
+# Requires: REPO_DIR, body.sh, collect.sh (item_source_file), install.sh
+
+copilot_label() { printf 'Copilot'; }
 
 copilot_types() {
   printf 'Agent\nSkill\n'
@@ -52,18 +54,21 @@ copilot_install() {
     skill) _copilot_write_skill "$name" "$rel_path" "$scope" "$project_dir" ;;
     hook)
       printf '  \033[33m!\033[0m  hook   →  skipped (%s): Copilot has no hook system\n' "$name"
+      return 1
       ;;
     *)
       printf '  \033[33m!\033[0m  Unknown type: %s\n' "$type"
+      return 1
       ;;
   esac
 }
 
 # Emit an optional frontmatter line when the item overrides it for Copilot.
+# The value is written through verbatim: it was authored as YAML in the source.
 # Always returns 0 — a missing key is normal, and the caller runs under `set -e`.
 _copilot_opt() {
   local src="$1" key="$2" val
-  val=$(provider_config "$src" copilot "$key")
+  val=$(assistant_config "$src" copilot "$key")
   if [ -n "$val" ]; then
     printf '%s: %s\n' "$key" "$val"
   fi
@@ -75,6 +80,10 @@ _copilot_opt() {
 # Frontmatter per https://docs.github.com/en/copilot/reference/custom-agents-configuration
 # description is the only required key; model is optional and inherits the user's
 # default, so it's omitted unless the item sets one explicitly.
+#
+# tools is never omitted when the source declares one. Copilot treats an absent
+# tools key as "every tool enabled", so dropping an untranslatable name would
+# quietly widen the agent's access — validate.sh refuses the install instead.
 
 _copilot_write_agent() {
   local name="$1" rel_path="$2" scope="$3" project_dir="$4"
@@ -87,9 +96,9 @@ _copilot_write_agent() {
 
   local description tools override_tools
   description=$(fm_get "$src" description)
-  tools=$(translate_tools "$(fm_get "$src" tools)")
+  tools=$(translate_tools "$(fm_get_list "$src" tools)")
 
-  override_tools=$(provider_config "$src" copilot tools)
+  override_tools=$(assistant_config "$src" copilot tools)
   if [ -n "$override_tools" ]; then
     override_tools="${override_tools#[}"
     tools="${override_tools%]}"
@@ -98,12 +107,13 @@ _copilot_write_agent() {
   {
     printf -- '---\n'
     printf 'name: %s\n' "$name"
-    printf 'description: %s\n' "$description"
+    printf 'description: %s\n' "$(yaml_quote "$description")"
     if [ -n "$tools" ]; then printf 'tools: [%s]\n' "$tools"; fi
     _copilot_opt "$src" model
     _copilot_opt "$src" target
     _copilot_opt "$src" user-invocable
     _copilot_opt "$src" disable-model-invocation
+    _copilot_opt "$src" mcp-servers
     printf -- '---\n'
     get_body "$src" | substitute_placeholders copilot
   } > "$target"
@@ -116,6 +126,10 @@ _copilot_write_agent() {
 # Frontmatter per https://code.visualstudio.com/docs/agent-customization/agent-skills
 # name and description are both REQUIRED here (unlike Claude Code, where both are
 # optional) — name must be lowercase letters, numbers and hyphens only.
+#
+# argument-hint, user-invocable and disable-model-invocation mean the same thing
+# in Claude Code and Copilot, so a top-level value carries over automatically and
+# only needs restating under assistants.copilot to differ.
 
 _copilot_write_skill() {
   local name="$1" rel_path="$2" scope="$3" project_dir="$4"
@@ -126,14 +140,8 @@ _copilot_write_skill() {
 
   mkdir -p "$target"
 
-  # Copy supporting files verbatim; SKILL.md itself is rendered below.
   if [ -d "$REPO_DIR/$rel_path" ]; then
-    local f
-    for f in "$REPO_DIR/$rel_path"/*; do
-      [ -f "$f" ] || continue
-      [ "$(basename "$f")" = "SKILL.md" ] && continue
-      cp "$f" "$target/"
-    done
+    copy_skill_support_files "$REPO_DIR/$rel_path" "$target"
   fi
 
   local description
@@ -142,10 +150,10 @@ _copilot_write_skill() {
   {
     printf -- '---\n'
     printf 'name: %s\n' "$name"
-    printf 'description: %s\n' "$description"
-    _copilot_opt "$src" argument-hint
-    _copilot_opt "$src" user-invocable
-    _copilot_opt "$src" disable-model-invocation
+    printf 'description: %s\n' "$(yaml_quote "$description")"
+    _shared_opt "$src" copilot argument-hint
+    _shared_opt "$src" copilot user-invocable
+    _shared_opt "$src" copilot disable-model-invocation
     _copilot_opt "$src" context
     printf -- '---\n'
     get_body "$src" | substitute_placeholders copilot

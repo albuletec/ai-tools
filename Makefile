@@ -2,7 +2,7 @@ AIT := ./ait
 
 .DEFAULT_GOAL := help
 
-.PHONY: help install list update
+.PHONY: help install list validate test update
 
 help: ## Show this help
 	@printf '\n\033[1mAI Tools\033[0m\n\n'
@@ -13,8 +13,14 @@ help: ## Show this help
 install: ## Bootstrap: install the ait CLI to your PATH
 	@./install.sh
 
-list: ## List all available agents, skills, hooks, and Copilot items
+list: ## List every agent, skill and hook, and the assistants that support them
 	@$(AIT) list
+
+validate: ## Lint every item for every assistant it opts into
+	@$(AIT) validate
+
+test: ## Run the test suite (tests/run.sh)
+	@bash tests/run.sh
 
 update: ## Pull latest changes from the ai-tools repo
 	@$(AIT) update

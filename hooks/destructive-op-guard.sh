@@ -8,6 +8,11 @@ set -u
 # explains how to proceed deliberately, so the user can re-issue the command themselves.
 # Read-only inspection (git status/log/diff/show, git reset without --hard, git pull
 # --ff-only, rm without -r and -f together) is never blocked.
+#
+# Destructive SQL only counts when the segment actually invokes a database client.
+# Searching for the phrase, or writing about it, is not the same as running it -
+# matching on the words alone made it impossible to grep migrations or document a
+# schema change.
 
 deny() {
   printf 'destructive-op-guard: blocked - %s\n' "$1" >&2
@@ -32,18 +37,48 @@ if [ -z "$cmd" ]; then
   exit 0
 fi
 
-if printf '%s' "$cmd" | grep -qiE -e '(drop[[:space:]]+(table|database)|truncate[[:space:]]+table)'; then
-  deny "the command contains a destructive SQL statement (DROP TABLE / DROP DATABASE / TRUNCATE TABLE)" \
-    "$cmd" \
-    "the table or database contents, with no rollback once the statement commits" \
-    "run it against a disposable local database only, inside an explicit transaction you can ROLLBACK, and take a dump first (pg_dump / mysqldump)"
-fi
+# First real token of a segment, skipping leading VAR=value assignments.
+first_token() {
+  printf '%s' "$1" | awk '{
+    for (i = 1; i <= NF; i++) {
+      if ($i ~ /^[A-Za-z_][A-Za-z0-9_]*=/) continue
+      sub(/^.*\//, "", $i)
+      print $i
+      exit
+    }
+  }'
+}
+
+# Commands that read or print text. A destructive-looking string in their
+# arguments is data, not an instruction.
+is_text_command() {
+  case "$1" in
+    echo|printf|grep|rg|ag|ack|cat|head|tail|less|more|sed|awk|find|ls|wc|diff|jq|git|comm|sort|uniq|tee)
+      return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Clients that would actually execute SQL against a database.
+invokes_db_client() {
+  printf '%s' "$1" | grep -qE -e '(^|[[:space:]/])(psql|mysql|mariadb|sqlite3?|mongosh?|mongo|clickhouse-client|sqlcmd|snowsql|cockroach|bq|prisma|knex|flyway|liquibase|alembic|sequelize|typeorm|drizzle-kit)([[:space:]]|$)'
+}
 
 segments=$(printf '%s' "$cmd" | tr ';|&' '\n\n\n')
 
 while IFS= read -r seg; do
   if [ -z "${seg:-}" ]; then
     continue
+  fi
+
+  token=$(first_token "$seg")
+
+  if ! is_text_command "$token" && invokes_db_client "$seg" \
+     && printf '%s' "$seg" | grep -qiE -e '(drop[[:space:]]+(table|database)|truncate[[:space:]]+table)'; then
+    deny "the command runs a destructive SQL statement (DROP TABLE / DROP DATABASE / TRUNCATE TABLE) against a database" \
+      "$seg" \
+      "the table or database contents, with no rollback once the statement commits" \
+      "run it against a disposable local database only, inside an explicit transaction you can ROLLBACK, and take a dump first (pg_dump / mysqldump)"
   fi
 
   is_git=1
@@ -92,7 +127,9 @@ while IFS= read -r seg; do
     fi
   fi
 
-  if printf '%s' "$seg" | grep -qE -e '(^|[[:space:]])rm([[:space:]])'; then
+  # An absolute path or a backslash escape reaches the same binary, so /bin/rm
+  # and \rm have to count as rm.
+  if printf '%s' "$seg" | grep -qE -e '(^|[[:space:]]|[/\])rm[[:space:]]'; then
     recursive_force=1
     if printf '%s' "$seg" | grep -qE -e '(^|[[:space:]])-[a-zA-Z]*([rR][a-zA-Z]*f|f[a-zA-Z]*[rR])'; then
       recursive_force=0

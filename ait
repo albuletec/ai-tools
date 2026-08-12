@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# ait — AI Tools installer for Claude Code and Copilot items.
-# Usage: ait [install|list|update|help]
+# ait — AI Tools installer for Claude Code, Copilot, Cursor and Windsurf items.
+# Usage: ait [install|list|validate|update|help]
 set -euo pipefail
 
 # ─── Resolve repo root (follows symlinks) ────────────────────────────────────
@@ -32,18 +32,27 @@ dim()     { printf "${DIM}%s${RESET}\n" "$*"; }
 # ─── Load library modules ─────────────────────────────────────────────────────
 # shellcheck source=scripts/lib/body.sh
 source "$LIB_DIR/body.sh"
+# shellcheck source=scripts/lib/registry.sh
+source "$LIB_DIR/registry.sh"
 # shellcheck source=scripts/lib/collect.sh
 source "$LIB_DIR/collect.sh"
 # shellcheck source=scripts/lib/install.sh
 source "$LIB_DIR/install.sh"
+# shellcheck source=scripts/lib/validate.sh
+source "$LIB_DIR/validate.sh"
 # shellcheck source=scripts/lib/menu.sh
 source "$LIB_DIR/menu.sh"
 # shellcheck source=scripts/lib/wizard.sh
 source "$LIB_DIR/wizard.sh"
-# shellcheck source=scripts/lib/providers/claude-code.sh
-source "$LIB_DIR/providers/claude-code.sh"
-# shellcheck source=scripts/lib/providers/copilot.sh
-source "$LIB_DIR/providers/copilot.sh"
+
+# Every registered assistant contributes one script, loaded by slug.
+for _assistant in $AIT_ASSISTANTS; do
+  _assistant_script="$LIB_DIR/assistants/$_assistant.sh"
+  [ -f "$_assistant_script" ] || die "no script for registered assistant '$_assistant' (expected $_assistant_script)"
+  # shellcheck source=/dev/null
+  source "$_assistant_script"
+done
+unset _assistant _assistant_script
 
 # ─── Auto-pull ────────────────────────────────────────────────────────────────
 auto_pull() {
@@ -64,28 +73,29 @@ cmd_install() {
 cmd_list() {
   auto_pull
   header "Available items"
-  printf "\n${BOLD}%-8s  %-24s  %s${RESET}\n" "TYPE" "NAME" "PROVIDERS"
-  printf "%s\n" "──────────────────────────────────────────────────────────"
+  printf "\n${BOLD}%-8s  %-24s  %s${RESET}\n" "TYPE" "NAME" "ASSISTANTS"
+  printf "%s\n" "──────────────────────────────────────────────────────────────────────"
 
-  local type name rel_path src providers p
+  local type name rel_path
   for type in agent skill hook; do
     while IFS=$'\t' read -r name rel_path; do
       [ -z "$name" ] && continue
-      src=$(item_source_file "$rel_path")
-      providers=""
-      for p in claude-code copilot cursor windsurf; do
-        if [ "$type" = "hook" ] && [ "$p" != "claude-code" ]; then
-          continue
-        fi
-        if has_provider "$src" "$p"; then
-          [ -n "$providers" ] && providers+=", "
-          providers+="$p"
-        fi
-      done
-      printf "%-8s  %-24s  ${DIM}%s${RESET}\n" "$type" "$name" "$providers"
+      printf "%-8s  %-24s  ${DIM}%s${RESET}\n" \
+        "$type" "$name" "$(assistants_for_item "$type" "$rel_path")"
     done < <(_all_items_of_type "$type")
   done
   printf "\n"
+}
+
+cmd_validate() {
+  header "Validating every item for every assistant it opts into"
+  printf "\n"
+  if validate_repo; then
+    printf "\n"
+    return 0
+  fi
+  printf "\n"
+  return 1
 }
 
 cmd_update() {
@@ -102,15 +112,16 @@ ${BOLD}USAGE${RESET}
 
 ${BOLD}COMMANDS${RESET}
   install    4-step interactive installer ${DIM}(default)${RESET}
-  list       List all available items
+  list       List all available items and the assistants that support them
+  validate   Lint every item; exits non-zero if any would install badly
   update     Pull latest from repo
   help       Show this help
 
 ${BOLD}WIZARD STEPS${RESET}
-  1. Provider  Claude Code | Copilot
-  2. Scope     Global (~/.claude) | Local (.claude in current dir)
-  3. Type      Agent | Skill | Hook
-  4. Tools     Multi-select with SPACE, confirm with ENTER
+  1. Assistant  Claude Code | Copilot | Cursor | Windsurf
+  2. Scope      Global (home directory) | Local (current project)
+  3. Type       Agent | Skill | Hook ${DIM}(only what the assistant supports)${RESET}
+  4. Items      Multi-select with SPACE, confirm with ENTER
 
   ESC goes back one step.  ESC on step 1 exits.
 
@@ -127,6 +138,7 @@ main() {
   case "$cmd" in
     install)        cmd_install ;;
     list)           cmd_list ;;
+    validate)       cmd_validate ;;
     update)         cmd_update ;;
     help|--help|-h) cmd_help ;;
     *) die "Unknown command: '$cmd'. Run 'ait help' for usage." ;;

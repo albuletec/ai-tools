@@ -7,13 +7,13 @@ A skill is a slash-command workflow. The user (or the model) invokes it by name 
 Directory-based (preferred — supports supporting files):
 
 ```
-skills/<name>/SKILL.md
+skills/{name}/SKILL.md
 ```
 
 Flat file (no supporting files needed):
 
 ```
-skills/<name>.md
+skills/{name}.md
 ```
 
 Drop the file here and it appears in the `ait` wizard immediately — no registry to update. Any non-`SKILL.md` files in a directory-based skill folder are copied to the install target verbatim (reference data, lookup tables, palette files, etc.).
@@ -24,7 +24,7 @@ Drop the file here and it appears in the `ait` wizard immediately — no registr
 ---
 name: my-skill
 description: One-line description of what this skill does and when to use it.
-providers:
+assistants:
   copilot:
 ---
 
@@ -35,29 +35,29 @@ Skill instructions go here.
 
 | Field | Notes |
 |-------|-------|
-| `name` | Kebab-case identifier. Becomes the `/name` slash command. |
+| `name` | Kebab-case identifier, lowercase letters, numbers and hyphens only. Becomes the `/name` slash command. It must match the file or directory name — Cursor requires that, and validation refuses a mismatch for every assistant so the same item cannot install under two identities. |
 | `description` | One-line description. Used in the wizard and as the trigger description the model reads. |
 
 Skills have no `model` or `tools` frontmatter — those are agent concepts. The skill loads as instructions within the invoking agent's context.
 
-## The `providers:` block
+## The `assistants:` block
 
-Claude Code is always supported. To make a skill available for other providers, add a key under `providers:`:
+Claude Code is always supported. To make a skill available for other assistants, add a key under `assistants:`:
 
 ```yaml
-providers:
+assistants:
   copilot:
 ```
 
-Per-provider overrides for skills:
+Per-assistant overrides for skills:
 
 ```yaml
-providers:
+assistants:
   copilot:
     argument-hint: "[pr-number]"
     user-invocable: false
     disable-model-invocation: true
-    context: selection
+    context: fork
 ```
 
 | Override key | Type | Notes |
@@ -65,9 +65,15 @@ providers:
 | `argument-hint` | string | Hint shown in the UI when the user types the slash command |
 | `user-invocable` | bool | Whether the user can invoke the skill directly |
 | `disable-model-invocation` | bool | Prevent the model from invoking this skill |
-| `context` | string | Copilot context type passed to the skill |
+| `context` | string | Copilot and Claude Code only, and the values differ, so it is only ever read from the assistant block — never carried over from a top-level `context` |
+| `paths` | string | Cursor only — glob restricting the skill to matching files |
 
-The entire `providers:` block is stripped before the file is written to disk.
+`argument-hint`, `user-invocable`, `disable-model-invocation` and `paths` mean the same thing
+in Claude Code as they do elsewhere, so a top-level value carries over automatically. Restate
+one under `assistants:` only when a specific assistant needs a different value. Windsurf
+documents no optional keys, so it receives `name` and `description` only.
+
+The entire `assistants:` block is stripped before the file is written to disk.
 
 ## Placeholder tokens
 
@@ -77,19 +83,36 @@ Use `{instructionsFile}` in the body to reference the repo-level instructions fi
 Read `{instructionsFile}` before writing anything.
 ```
 
-| Provider | Resolves to |
+| Assistant | Resolves to |
 |----------|-------------|
 | Claude Code | `CLAUDE.md` |
 | Others | `AGENTS.md` |
 
 ## Install paths
 
-| Scope | Claude Code | Copilot |
-|-------|-------------|---------|
-| Global | `~/.claude/skills/<name>/SKILL.md` | `~/.copilot/skills/<name>/SKILL.md` |
-| Local | `.claude/skills/<name>/SKILL.md` | `.github/skills/<name>/SKILL.md` |
+| Assistant | Global | Local |
+|-----------|--------|-------|
+| Claude Code | `~/.claude/skills/{name}/SKILL.md` | `.claude/skills/{name}/SKILL.md` |
+| Copilot | `~/.copilot/skills/{name}/SKILL.md` | `.github/skills/{name}/SKILL.md` |
+| Cursor | `~/.cursor/skills/{name}/SKILL.md` | `.cursor/skills/{name}/SKILL.md` |
+| Windsurf | `~/.codeium/windsurf/skills/{name}/SKILL.md` | `.windsurf/skills/{name}/SKILL.md` |
 
-Supporting files in the source directory are copied alongside `SKILL.md` at the install target.
+## Supporting files
+
+Everything in the source directory except `SKILL.md` is copied to the install target,
+**subdirectories included**. All four assistants document reading `scripts/`, `references/`
+and `assets/` relative to `SKILL.md`, so a skill that bundles reference material works
+unchanged wherever it lands:
+
+```
+skills/dataviz/
+  SKILL.md
+  references/palette.md
+  scripts/validate.py
+```
+
+Reference them with relative links from `SKILL.md`. `tests/run.sh golden` asserts that a
+nested fixture arrives intact for every assistant.
 
 ## Full example
 
@@ -97,7 +120,7 @@ Supporting files in the source directory are copied alongside `SKILL.md` at the 
 ---
 name: pr-description
 description: Write a pull request description from the current branch's changes.
-providers:
+assistants:
   copilot:
     argument-hint: "[branch]"
 ---

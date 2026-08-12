@@ -1,8 +1,10 @@
 ---
 name: standards-check
 description: Fast compliance check of changed files against the Gaming standards repos. Use when the user says "check standards compliance", "does this follow the standards", or "standards check". Cites the source repo and doc for every rule.
-providers:
+assistants:
   copilot:
+  cursor:
+  windsurf:
 ---
 
 A fast pass over the changed files against the standards docs. This is not a full review — it does not duplicate `code-reviewer` or `observability-reviewer` scope.

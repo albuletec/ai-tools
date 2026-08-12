@@ -7,6 +7,7 @@
 | `bash` | yes | — (3.2 is fine; macOS system bash works) |
 | `git` | yes | — |
 | `jq` | optional | Hooks are copied but not wired into `settings.json` |
+| `ruby` | tests only | `tests/run.sh` cannot assert on YAML or JSON |
 
 Install `jq` with `brew install jq`.
 
@@ -41,7 +42,7 @@ ait
 This opens a four-step wizard:
 
 ```
-1. Provider  →  2. Scope  →  3. Type  →  4. Items  →  Confirm
+1. Assistant  →  2. Scope  →  3. Type  →  4. Items  →  Confirm
 ```
 
 | Key | Action |
@@ -51,12 +52,17 @@ This opens a four-step wizard:
 | `ENTER` | Select / confirm |
 | `ESC` | Back one step — exits from step 1 |
 
-### Step 1 — Provider
+### Step 1 — Assistant
 
-Choose the AI assistant you are installing for:
+Choose the AI coding assistant you are installing for:
 
 - **Claude Code** — installs under `.claude/` (local) or `~/.claude/` (global)
 - **Copilot** — installs under `.github/` (local) or `~/.copilot/` (global)
+- **Cursor** — installs under `.cursor/` (local) or `~/.cursor/` (global)
+- **Windsurf** — installs under `.windsurf/` (local) or `~/.codeium/windsurf/` (global)
+
+The list comes from `AIT_ASSISTANTS` in `scripts/lib/registry.sh`, so a newly registered
+assistant appears here with no other change.
 
 ### Step 2 — Scope
 
@@ -67,17 +73,25 @@ Choose the AI assistant you are installing for:
 
 ### Step 3 — Type
 
-Choose Agent, Skill, or Hook. Hook is hidden when Copilot is selected.
+Choose Agent, Skill, or Hook. Only the types the chosen assistant actually supports are
+offered, and only when the repo has at least one item of that type for it — Hook is hidden for
+everything except Claude Code, and Agent is hidden for Windsurf.
 
 ### Step 4 — Items
 
-Multi-select with `SPACE`. Press `ENTER` to confirm. Nothing is written until the confirmation screen.
+Multi-select with `SPACE`. Press `ENTER` to confirm. Nothing is written until the confirmation
+screen.
+
+An item that would install badly for the chosen assistant is listed with a `✗` and its
+reason, and cannot be selected. Run `ait validate` to see every such reason across the whole
+repo at once.
 
 ## CLI commands
 
 ```bash
 ait              # interactive installer (same as `ait install`)
-ait list         # show every item and which providers support it
+ait list         # show every item and which assistants support it
+ait validate     # lint every item; non-zero exit if any would install badly
 ait update       # pull the latest ai-tools without installing anything
 ait help         # usage
 ```
@@ -88,6 +102,8 @@ Every `ait` command performs a `git pull --ff-only` first, so you are never inst
 
 ```bash
 make list        # same as `ait list`
+make validate    # same as `ait validate`
+make test        # run the test suite
 make update      # same as `ait update`
 ```
 

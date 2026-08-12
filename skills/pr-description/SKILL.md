@@ -1,8 +1,10 @@
 ---
 name: pr-description
 description: Write a pull request description from the current branch's changes. Use when the user says "write a PR description", "open a PR", "describe these changes", or asks for a PR body.
-providers:
+assistants:
   copilot:
+  cursor:
+  windsurf:
 ---
 
 Produce a PR body from the actual diff. Gather context before writing a single line of it.
