@@ -30,7 +30,7 @@
 # declared per item as assistants.cursor.readonly rather than inferred from a
 # tool list — an agent holding a shell was never really read-only anyway.
 #
-# Requires: REPO_DIR, body.sh, collect.sh (item_source_file), install.sh
+# Requires: REPO_DIR, body.sh, install.sh (render_item)
 
 cursor_label() { printf 'Cursor'; }
 
@@ -38,20 +38,8 @@ cursor_types() {
   printf 'Agent\nSkill\nRule\n'
 }
 
-_cursor_dir() {
-  local type="$1" scope="$2" project_dir="$3"
-  local base
-  if [ "$scope" = "local" ]; then
-    base="$project_dir/.cursor"
-  else
-    base="${AIT_CURSOR_USER_DIR:-$HOME/.cursor}"
-  fi
-  case "$type" in
-    agent) printf '%s/agents' "$base" ;;
-    skill) printf '%s/skills' "$base" ;;
-    rule)  printf '%s/rules'  "$base" ;;
-  esac
-}
+cursor_local_base()  { printf '%s/.cursor' "$1"; }
+cursor_global_base() { printf '%s' "${AIT_CURSOR_USER_DIR:-$HOME/.cursor}"; }
 
 # The per-project context file. AGENTS.md is a repository file by definition, and
 # Cursor's global equivalent is User Rules, which live in the settings UI rather
@@ -71,87 +59,46 @@ cursor_init_note() {
 # Usage: cursor_install NAME TYPE REL_PATH SCOPE PROJECT_DIR
 cursor_install() {
   local name="$1" type="$2" rel_path="$3" scope="$4" project_dir="$5"
+  local dir
 
   case "$type" in
-    agent) _cursor_write_agent "$name" "$rel_path" "$scope" "$project_dir" ;;
-    skill) _cursor_write_skill "$name" "$rel_path" "$scope" "$project_dir" ;;
-    rule)  _cursor_write_rule  "$name" "$rel_path" "$scope" "$project_dir" ;;
+    agent|skill|rule) dir=$(assistant_dir cursor "$type" "$scope" "$project_dir") ;;
     hook)
-      printf '  \033[33m!\033[0m  hook   →  skipped (%s): Cursor hooks are not modelled yet\n' "$name"
+      item_skip hook "$name" "Cursor hooks are not modelled yet"
       return 1
       ;;
     *)
-      printf '  \033[33m!\033[0m  Unknown type: %s\n' "$type"
+      ait_note "Unknown type: $type"
       return 1
       ;;
   esac
+
+  case "$type" in
+    agent) render_item cursor agent "$name" "$rel_path" \
+             "$dir/$name.md" _cursor_agent_fm ;;
+    skill) render_item cursor skill "$name" "$rel_path" \
+             "$dir/$name/SKILL.md" _cursor_skill_fm ;;
+    rule)  render_item cursor rule "$name" "$rel_path" \
+             "$dir/$name.mdc" _cursor_rule_fm ;;
+  esac
 }
 
-_cursor_opt() {
-  local src="$1" key="$2" val
-  val=$(assistant_config "$src" cursor "$key")
-  if [ -n "$val" ]; then
-    printf '%s: %s\n' "$key" "$val"
-  fi
-  return 0
-}
-
-_cursor_write_agent() {
-  local name="$1" rel_path="$2" scope="$3" project_dir="$4"
-  local src target_dir target
-  src=$(item_source_file "$rel_path")
-  target_dir=$(_cursor_dir agent "$scope" "$project_dir")
-  target="$target_dir/$name.md"
-
-  mkdir -p "$target_dir"
-
-  local description
-  description=$(fm_get "$src" description)
-
-  {
-    printf -- '---\n'
-    printf 'name: %s\n' "$name"
-    printf 'description: %s\n' "$(yaml_quote "$description")"
-    _cursor_opt "$src" model
-    _cursor_opt "$src" readonly
-    _cursor_opt "$src" is_background
-    printf -- '---\n'
-    get_body "$src" | substitute_placeholders cursor
-  } > "$target"
-
-  printf '  \033[32m✓\033[0m  agent  →  %s\n' "$target"
+_cursor_agent_fm() {
+  local src="$1" name="$2"
+  fm_name_description "$src" "$name"
+  _assistant_opt "$src" cursor model
+  _assistant_opt "$src" cursor readonly
+  _assistant_opt "$src" cursor is_background
 }
 
 # Skill frontmatter per https://cursor.com/docs/skills — name and description are
 # both required, and name must match the parent folder name.
-_cursor_write_skill() {
-  local name="$1" rel_path="$2" scope="$3" project_dir="$4"
-  local src target_dir target
-  src=$(item_source_file "$rel_path")
-  target_dir=$(_cursor_dir skill "$scope" "$project_dir")
-  target="$target_dir/$name"
-
-  mkdir -p "$target"
-
-  if [ -d "$REPO_DIR/$rel_path" ]; then
-    copy_skill_support_files "$REPO_DIR/$rel_path" "$target"
-  fi
-
-  local description
-  description=$(fm_get "$src" description)
-
-  {
-    printf -- '---\n'
-    printf 'name: %s\n' "$name"
-    printf 'description: %s\n' "$(yaml_quote "$description")"
-    _shared_opt "$src" cursor disable-model-invocation
-    _shared_opt "$src" cursor paths
-    _cursor_opt "$src" metadata
-    printf -- '---\n'
-    get_body "$src" | substitute_placeholders cursor
-  } > "$target/SKILL.md"
-
-  printf '  \033[32m✓\033[0m  skill  →  %s/SKILL.md\n' "$target"
+_cursor_skill_fm() {
+  local src="$1" name="$2"
+  fm_name_description "$src" "$name"
+  _shared_opt "$src" cursor disable-model-invocation
+  _shared_opt "$src" cursor paths
+  _assistant_opt "$src" cursor metadata
 }
 
 # A .mdc rule is identified by its filename, so no name key is emitted. The
@@ -159,28 +106,15 @@ _cursor_write_skill() {
 # item declares under assistants.cursor are written: an absent alwaysApply
 # already means false, and synthesising `alwaysApply: false` would make a Manual
 # rule indistinguishable from an Auto Attached one in review.
-_cursor_write_rule() {
-  local name="$1" rel_path="$2" scope="$3" project_dir="$4"
-  local src target_dir target
-  src=$(item_source_file "$rel_path")
-  target_dir=$(_cursor_dir rule "$scope" "$project_dir")
-  target="$target_dir/$name.mdc"
-
-  mkdir -p "$target_dir"
-
-  {
-    printf -- '---\n'
-    # regression: description comes only from assistants.cursor.description, and
-    # deliberately does not fall back to the top-level one the way every other
-    # shared key does. On Cursor the mere presence of a description selects Agent
-    # Requested activation, so a carry-over would silently change the activation
-    # mode of every rule that has a top-level description — which is all of them.
-    _cursor_opt "$src" description
-    _cursor_opt "$src" globs
-    _cursor_opt "$src" alwaysApply
-    printf -- '---\n'
-    get_body "$src" | substitute_placeholders cursor
-  } > "$target"
-
-  printf '  \033[32m✓\033[0m  rule   →  %s\n' "$target"
+_cursor_rule_fm() {
+  local src="$1"
+  # regression: description comes only from assistants.cursor.description, and
+  # deliberately does not fall back to the top-level one the way every other
+  # shared key does. On Cursor the mere presence of a description selects Agent
+  # Requested activation, so a carry-over would silently change the activation
+  # mode of every rule that has a top-level description — which is all of them.
+  # This is also why _cursor_rule_fm does not call fm_name_description.
+  _assistant_opt "$src" cursor description
+  _assistant_opt "$src" cursor globs
+  _assistant_opt "$src" cursor alwaysApply
 }

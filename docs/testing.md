@@ -6,7 +6,8 @@ tests/run.sh            # same
 tests/run.sh golden     # one section
 ```
 
-Sections: `syntax`, `install`, `unit`, `validate`, `rules`, `init`, `golden`, `hooks`.
+Sections: `syntax`, `install`, `unit`, `validate`, `rules`, `init`, `wizard`, `golden`,
+`hooks`.
 
 No framework. Bash runs the harness; Ruby does the YAML and JSON assertions, because parsing
 YAML with `grep` is how several of the bugs this suite exists to catch got in. Ruby ships with
@@ -22,12 +23,20 @@ macOS and with every GitHub runner.
 | `validate` | Every fail-closed rule, and that the shipped repo is clean |
 | `rules` | Rule discovery, the three renderers, Copilot's refusal, and every activation check |
 | `init` | `assistant_init_targets` per assistant and scope, target dedup, and `install_init_file`'s three modes |
+| `wizard` | Both interactive flows, driven by a file of keystrokes: menu positions, arrow navigation, scope, multi-select, ESC |
 | `golden` | Installs every item for every assistant and scope into a temp tree, then inspects the result |
 | `hooks` | Payload matrices for all five guards, plus terminology rule coverage |
 
 The `rules` and `init` sections both build a fixture tree and point `REPO_DIR` at it, saving
-and restoring `REPO_DIR` and `HOME` around the calls. `run_init_wizard` is never called — it
-needs a TTY — so `init` drives `_init_collect`, `_init_write` and `install_init_file` directly.
+and restoring `REPO_DIR` and `HOME` around the calls. The `init` section drives
+`_init_collect`, `_init_write` and `install_init_file` directly, at the unit level.
+
+The `wizard` section then drives the whole flow. The menus read one byte at a time from
+stdin, so a file of keystrokes stands in for a terminal — `\033[B` is Down, a space toggles,
+`\n` confirms, and a lone `\033` is ESC. Input comes from a file rather than a pipe so the
+menu runs in the test's own shell and its `MENU_INDEX` / `MENU_INDICES` globals can be
+asserted on; the end-to-end cases run in a subshell with `HOME` and the working directory
+pointed at a fixture, and assert on what landed on disk.
 
 ## The golden section is the important one
 

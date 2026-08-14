@@ -17,7 +17,8 @@
 # trigger: or globs: written for Windsurf or Cursor must never leak into a
 # Claude Code file, and passthrough would copy it verbatim.
 #
-# Requires: REPO_DIR, body.sh, install.sh (parse_hook_meta, patch_settings_json)
+# Requires: REPO_DIR, body.sh, install.sh (render_item, parse_hook_meta,
+# patch_settings_json)
 
 claude_code_label() { printf 'Claude Code'; }
 
@@ -25,10 +26,13 @@ claude_code_types() {
   printf 'Agent\nSkill\nRule\nHook\n'
 }
 
-# The per-project context file. Claude Code is the only assistant with a
-# documented home-directory equivalent, so it is the only one that offers a global
-# target. $HOME is read here, at call time, rather than captured when this file is
-# sourced, so the tests can point it at a fixture tree.
+# Claude Code is the only assistant whose global tree mirrors its local one, which
+# is also why it is the only one offering a global `ait init` target.
+claude_code_local_base()  { printf '%s/.claude' "$1"; }
+claude_code_global_base() { printf '%s/.claude' "$HOME"; }
+
+# The per-project context file. $HOME is read here, at call time, rather than
+# captured when this file is sourced, so the tests can point it at a fixture tree.
 # Usage: claude_code_init_targets SCOPE PROJECT_DIR
 claude_code_init_targets() {
   local scope="$1" project_dir="$2"
@@ -43,100 +47,47 @@ claude_code_init_targets() {
 # Usage: claude_code_install NAME TYPE REL_PATH SCOPE PROJECT_DIR
 claude_code_install() {
   local name="$1" type="$2" rel_path="$3" scope="$4" project_dir="$5"
-
-  local base settings_file
-  if [ "$scope" = "global" ]; then
-    base="$HOME/.claude"
-  else
-    base="$project_dir/.claude"
-  fi
-  settings_file="$base/settings.json"
+  local dir
+  dir=$(assistant_dir claude-code "$type" "$scope" "$project_dir") || {
+    ait_note "Unknown type: $type"
+    return 1
+  }
 
   case "$type" in
-    agent) _cc_write_agent "$name" "$rel_path" "$base/agents" ;;
-    skill) _cc_write_skill "$name" "$rel_path" "$base/skills" ;;
-    rule)  _cc_write_rule  "$name" "$rel_path" "$base/rules" ;;
-    hook)  _cc_write_hook  "$name" "$rel_path" "$scope" "$base/hooks" "$settings_file" ;;
-    *)     printf '  \033[33m!\033[0m  Unknown type: %s\n' "$type"; return 1 ;;
+    agent) render_item claude-code agent "$name" "$rel_path" \
+             "$dir/$name.md" _cc_passthrough_fm ;;
+    skill) render_item claude-code skill "$name" "$rel_path" \
+             "$dir/$name/SKILL.md" _cc_passthrough_fm ;;
+    rule)  render_item claude-code rule "$name" "$rel_path" \
+             "$dir/$name.md" _cc_rule_fm ;;
+    hook)  _cc_write_hook "$name" "$rel_path" "$scope" "$dir" \
+             "$(dirname "$dir")/settings.json" ;;
   esac
 }
 
-# Emit an optional frontmatter line when the item sets it for Claude Code.
-# The value is written through verbatim: it was authored as YAML in the source.
-# Always returns 0 — a missing key is normal, and the caller runs under `set -e`.
-_cc_opt() {
-  local src="$1" key="$2" val
-  val=$(assistant_config "$src" claude-code "$key")
-  if [ -n "$val" ]; then
-    printf '%s: %s\n' "$key" "$val"
-  fi
-  return 0
-}
-
-# Rewrite an item file for Claude Code: keep the shared frontmatter keys, drop
-# the assistants: block, re-emit model and tools from assistants.claude-code,
-# substitute placeholders in the body. The two extra keys are emitted only when
-# the item declares them, so skills — which never do — are unaffected.
-_cc_render() {
+# Keep the shared frontmatter keys, drop the assistants: block, re-emit model and
+# tools from assistants.claude-code. The two extra keys are emitted only when the
+# item declares them, so skills — which never do — are unaffected.
+_cc_passthrough_fm() {
   local src="$1"
 
-  printf -- '---\n'
   get_frontmatter "$src" | awk '
     /^assistants:/         { ina=1; next }
     ina && /^[[:space:]]/  { next }
     ina && /^[[:space:]]*$/{ next }
     ina && /^[^[:space:]]/ { ina=0 }
     { print }'
-  _cc_opt "$src" model
-  _cc_opt "$src" tools
-  printf -- '---\n'
-  get_body "$src" | substitute_placeholders claude-code
-}
-
-_cc_write_agent() {
-  local name="$1" rel_path="$2" target_dir="$3"
-  mkdir -p "$target_dir"
-  _cc_render "$REPO_DIR/$rel_path" > "$target_dir/$name.md"
-  printf '  \033[32m✓\033[0m  agent  →  %s/%s.md\n' "$target_dir" "$name"
-}
-
-_cc_write_skill() {
-  local name="$1" rel_path="$2" target_dir="$3"
-  local src="$REPO_DIR/$rel_path"
-  mkdir -p "$target_dir/$name"
-
-  if [ -d "$src" ]; then
-    copy_skill_support_files "$src" "$target_dir/$name"
-    _cc_render "$src/SKILL.md" > "$target_dir/$name/SKILL.md"
-  else
-    _cc_render "$src" > "$target_dir/$name/SKILL.md"
-  fi
-
-  printf '  \033[32m✓\033[0m  skill  →  %s/%s/SKILL.md\n' "$target_dir" "$name"
+  _assistant_opt "$src" claude-code model
+  _assistant_opt "$src" claude-code tools
 }
 
 # Rules carry exactly three keys: name, description, and paths when the item
 # declares one. paths goes through _shared_opt, so assistants.claude-code.paths
 # wins and a top-level paths carries over — the same behaviour skills have.
 # Nothing is printed when neither is set, and the rule then always loads.
-_cc_write_rule() {
-  local name="$1" rel_path="$2" target_dir="$3"
-  local src="$REPO_DIR/$rel_path"
-  mkdir -p "$target_dir"
-
-  local description
-  description=$(fm_get "$src" description)
-
-  {
-    printf -- '---\n'
-    printf 'name: %s\n' "$name"
-    printf 'description: %s\n' "$(yaml_quote "$description")"
-    _shared_opt "$src" claude-code paths
-    printf -- '---\n'
-    get_body "$src" | substitute_placeholders claude-code
-  } > "$target_dir/$name.md"
-
-  printf '  \033[32m✓\033[0m  rule   →  %s/%s.md\n' "$target_dir" "$name"
+_cc_rule_fm() {
+  fm_name_description "$1" "$2"
+  _shared_opt "$1" claude-code paths
 }
 
 _cc_write_hook() {
@@ -144,7 +95,7 @@ _cc_write_hook() {
   mkdir -p "$hooks_dir"
   cp "$REPO_DIR/$rel_path" "$hooks_dir/$name.sh"
   chmod +x "$hooks_dir/$name.sh"
-  printf '  \033[32m✓\033[0m  hook   →  %s/%s.sh\n' "$hooks_dir" "$name"
+  item_ok hook "$hooks_dir/$name.sh"
 
   # Project hooks use the documented ${CLAUDE_PROJECT_DIR} placeholder rather than
   # a bare relative path, which would otherwise resolve against the working

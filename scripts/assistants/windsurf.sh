@@ -25,7 +25,7 @@
 # installing here gets the native locations. Global skills live under the
 # Codeium config tree, not under a dotfile in $HOME directly.
 #
-# Requires: REPO_DIR, body.sh, collect.sh (item_source_file), install.sh
+# Requires: REPO_DIR, body.sh, install.sh (render_item)
 
 windsurf_label() { printf 'Windsurf'; }
 
@@ -33,19 +33,8 @@ windsurf_types() {
   printf 'Skill\nRule\n'
 }
 
-_windsurf_dir() {
-  local type="$1" scope="$2" project_dir="$3"
-  local base
-  if [ "$scope" = "local" ]; then
-    base="$project_dir/.windsurf"
-  else
-    base="${AIT_WINDSURF_USER_DIR:-$HOME/.codeium/windsurf}"
-  fi
-  case "$type" in
-    skill) printf '%s/skills' "$base" ;;
-    rule)  printf '%s/rules'  "$base" ;;
-  esac
-}
+windsurf_local_base()  { printf '%s/.windsurf' "$1"; }
+windsurf_global_base() { printf '%s' "${AIT_WINDSURF_USER_DIR:-$HOME/.codeium/windsurf}"; }
 
 # The per-project context file. AGENTS.md is a repository file by definition, and
 # Windsurf's global equivalent is a single memories/global_rules.md rather than a
@@ -65,94 +54,52 @@ windsurf_init_note() {
 # Usage: windsurf_install NAME TYPE REL_PATH SCOPE PROJECT_DIR
 windsurf_install() {
   local name="$1" type="$2" rel_path="$3" scope="$4" project_dir="$5"
+  local dir
 
   case "$type" in
-    skill) _windsurf_write_skill "$name" "$rel_path" "$scope" "$project_dir" ;;
-    rule)  _windsurf_write_rule  "$name" "$rel_path" "$scope" "$project_dir" ;;
+    skill|rule) dir=$(assistant_dir windsurf "$type" "$scope" "$project_dir") ;;
     agent)
-      printf '  \033[33m!\033[0m  agent  →  skipped (%s): Windsurf has no subagent format\n' "$name"
+      item_skip agent "$name" "Windsurf has no subagent format"
       return 1
       ;;
     hook)
-      printf '  \033[33m!\033[0m  hook   →  skipped (%s): Windsurf has no hook system\n' "$name"
+      item_skip hook "$name" "Windsurf has no hook system"
       return 1
       ;;
     *)
-      printf '  \033[33m!\033[0m  Unknown type: %s\n' "$type"
+      ait_note "Unknown type: $type"
       return 1
       ;;
   esac
+
+  case "$type" in
+    skill) render_item windsurf skill "$name" "$rel_path" \
+             "$dir/$name/SKILL.md" _windsurf_skill_fm ;;
+    rule)  render_item windsurf rule "$name" "$rel_path" \
+             "$dir/$name.md" _windsurf_rule_fm ;;
+  esac
 }
 
-# Emit an optional frontmatter line when the item sets it for Windsurf.
-# The value is written through verbatim: it was authored as YAML in the source.
-# Always returns 0 — a missing key is normal, and the caller runs under `set -e`.
-_windsurf_opt() {
-  local src="$1" key="$2" val
-  val=$(assistant_config "$src" windsurf "$key")
-  if [ -n "$val" ]; then
-    printf '%s: %s\n' "$key" "$val"
-  fi
-  return 0
-}
-
-_windsurf_write_skill() {
-  local name="$1" rel_path="$2" scope="$3" project_dir="$4"
-  local src target_dir target
-  src=$(item_source_file "$rel_path")
-  target_dir=$(_windsurf_dir skill "$scope" "$project_dir")
-  target="$target_dir/$name"
-
-  mkdir -p "$target"
-
-  if [ -d "$REPO_DIR/$rel_path" ]; then
-    copy_skill_support_files "$REPO_DIR/$rel_path" "$target"
-  fi
-
-  local description
-  description=$(fm_get "$src" description)
-
-  {
-    printf -- '---\n'
-    printf 'name: %s\n' "$name"
-    printf 'description: %s\n' "$(yaml_quote "$description")"
-    printf -- '---\n'
-    get_body "$src" | substitute_placeholders windsurf
-  } > "$target/SKILL.md"
-
-  printf '  \033[32m✓\033[0m  skill  →  %s/SKILL.md\n' "$target"
+_windsurf_skill_fm() {
+  fm_name_description "$1" "$2"
 }
 
 # trigger is always emitted, because validate.sh refuses a Windsurf rule without
 # one. description is always emitted too — unlike on Cursor, where it selects an
 # activation mode — because a Windsurf rule is a .md file and is therefore
 # inspected by the golden section's whole-tree pass, which requires one.
-_windsurf_write_rule() {
-  local name="$1" rel_path="$2" scope="$3" project_dir="$4"
-  local src target_dir target
-  src=$(item_source_file "$rel_path")
-  target_dir=$(_windsurf_dir rule "$scope" "$project_dir")
-  target="$target_dir/$name.md"
-
-  mkdir -p "$target_dir"
+_windsurf_rule_fm() {
+  local src="$1" description
 
   # The two sources are handled differently on purpose: an override under
   # assistants.windsurf is already YAML as the author wrote it, while a value
   # returned by fm_get has been read *out* of YAML and has to be re-quoted.
-  local description
   description=$(assistant_config "$src" windsurf description)
   if [ -z "$description" ]; then
     description=$(yaml_quote "$(fm_get "$src" description)")
   fi
 
-  {
-    printf -- '---\n'
-    printf 'trigger: %s\n' "$(assistant_config "$src" windsurf trigger)"
-    printf 'description: %s\n' "$description"
-    _windsurf_opt "$src" globs
-    printf -- '---\n'
-    get_body "$src" | substitute_placeholders windsurf
-  } > "$target"
-
-  printf '  \033[32m✓\033[0m  rule   →  %s\n' "$target"
+  printf 'trigger: %s\n' "$(assistant_config "$src" windsurf trigger)"
+  printf 'description: %s\n' "$description"
+  _assistant_opt "$src" windsurf globs
 }

@@ -2,9 +2,10 @@
 # Assistant registry — the single list of supported assistants.
 #
 # Adding an assistant is two changes: write scripts/assistants/<name>.sh
-# exposing <name>_types(), <name>_install() and optionally <name>_label(), then
-# add its slug to AIT_ASSISTANTS below. The wizard, `ait list` and `ait validate`
-# all read this list, so there is nowhere else to remember.
+# exposing <name>_types(), <name>_install(), <name>_local_base(),
+# <name>_global_base() and optionally <name>_label(), then add its slug to
+# AIT_ASSISTANTS below. The wizard, `ait list` and `ait validate` all read this
+# list, so there is nowhere else to remember.
 #
 # Slugs map to function prefixes by replacing hyphens with underscores:
 # claude-code → claude_code_types / claude_code_install.
@@ -83,10 +84,41 @@ assistant_install() {
   local fn
   fn="$(_assistant_fn_prefix "$assistant")_install"
   if ! declare -f "$fn" >/dev/null 2>&1; then
-    printf '  \033[33m!\033[0m  no installer for assistant: %s\n' "$assistant"
+    ait_note "no installer for assistant: $assistant"
     return 1
   fi
   "$fn" "$@"
+}
+
+# Install directory for one type at one scope, as <base>/<type>s.
+#
+# Every assistant lays its tree out the same way — a base directory that depends
+# only on the scope, then one subdirectory per item type, named as the plural of
+# the type. So an assistant declares just the two bases:
+#
+#   <name>_local_base PROJECT_DIR   e.g. {project}/.cursor
+#   <name>_global_base              e.g. ${AIT_CURSOR_USER_DIR:-$HOME/.cursor}
+#
+# Read $HOME inside those functions rather than capturing it when the file is
+# sourced, so the tests can point it at a fixture tree.
+#
+# Returns non-zero for a type the assistant does not support, rather than printing
+# a path it would then write to: an unsupported type is a caller bug, and the old
+# per-assistant case statements answered it with an empty string.
+# Usage: assistant_dir ASSISTANT TYPE SCOPE PROJECT_DIR
+assistant_dir() {
+  local assistant="$1" type="$2" scope="$3" project_dir="$4"
+  assistant_supports_type "$assistant" "$type" || return 1
+
+  local prefix base
+  prefix="$(_assistant_fn_prefix "$assistant")"
+  if [ "$scope" = "local" ]; then
+    base=$("${prefix}_local_base" "$project_dir")
+  else
+    base=$("${prefix}_global_base")
+  fi
+  [ -n "$base" ] || return 1
+  printf '%s/%ss' "$base" "$type"
 }
 
 # True when the slug is a registered assistant.

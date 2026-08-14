@@ -2,9 +2,20 @@
 # Arrow-key menu engine for the ait installer wizard.
 # No external dependencies. Uses the terminal alternate screen buffer.
 # Provides: menu_enter, menu_exit, menu_clear, single_menu, multi_menu
-# Result of each call is placed in MENU_RESULT.
+#
+# Each call reports its outcome three ways:
+#   MENU_RESULT   the selected label, or newline-separated labels for multi_menu
+#   MENU_INDEX    the selected position, set by single_menu
+#   MENU_INDICES  space-separated selected positions, set by multi_menu
+#
+# The indices are what callers should prefer. A wizard step offers labels built
+# from a parallel array — slugs, internal type names, item paths — and the index
+# addresses that array directly, so nothing has to search back from the label to
+# find what the user picked.
 
 MENU_RESULT=""
+MENU_INDEX=""
+MENU_INDICES=""
 
 # ─── Terminal control ─────────────────────────────────────────────────────────
 
@@ -72,7 +83,7 @@ _draw_header() {
 # ─── Single-select menu ────────────────────────────────────────────────────────
 
 # single_menu TITLE BREADCRUMB ITEM...
-# Sets MENU_RESULT to the selected item label.
+# Sets MENU_RESULT to the selected item label and MENU_INDEX to its position.
 # Returns 0 on select, 1 on ESC.
 single_menu() {
   local title="$1" breadcrumb="$2"
@@ -108,10 +119,12 @@ single_menu() {
         ;;
       enter)
         MENU_RESULT="${items[$current]}"
+        MENU_INDEX="$current"
         return 0
         ;;
       escape)
         MENU_RESULT=""
+        MENU_INDEX=""
         return 1
         ;;
     esac
@@ -121,7 +134,8 @@ single_menu() {
 # ─── Multi-select menu ─────────────────────────────────────────────────────────
 
 # multi_menu TITLE BREADCRUMB ITEM...
-# Sets MENU_RESULT to a newline-separated list of selected item labels.
+# Sets MENU_RESULT to a newline-separated list of selected item labels and
+# MENU_INDICES to their positions, both in the order the user toggled them.
 # Returns 0 on confirm, 1 on ESC.
 #
 # Reads _MENU_DISABLED — a space-separated list of item indices that cannot be
@@ -205,14 +219,18 @@ multi_menu() {
         ;;
       enter)
         MENU_RESULT=""
+        MENU_INDICES=""
         for (( j = 0; j < ${#selected[@]}; j++ )); do
           MENU_RESULT+="${items[${selected[$j]}]}"$'\n'
+          MENU_INDICES+="${selected[$j]} "
         done
         MENU_RESULT="${MENU_RESULT%$'\n'}"
+        MENU_INDICES="${MENU_INDICES% }"
         return 0
         ;;
       escape)
         MENU_RESULT=""
+        MENU_INDICES=""
         return 1
         ;;
     esac

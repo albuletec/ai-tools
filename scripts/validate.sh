@@ -66,16 +66,13 @@ _fm_key_declared() {
   get_frontmatter "$1" | grep -qE "^$2:"
 }
 
-# True when assistants.ASSISTANT declares KEY, whatever its value. Scoped exactly
-# the way assistant_config scopes its read, so the two agree on what is declared.
+# True when assistants.ASSISTANT declares KEY, whatever its value — including a
+# block sequence, which assistant_config reads as empty. Both go through
+# _assistant_block, so the two cannot drift apart on what counts as declared.
 # Usage: _assistant_key_declared SRC ASSISTANT KEY
 _assistant_key_declared() {
-  get_frontmatter "$1" | awk -v a="$2" -v k="$3" '
-    /^assistants:/                    { ina=1; next }
-    ina && /^[^[:space:]]/            { ina=0; intgt=0 }
-    ina && $0 ~ "^[[:space:]]+"a":"   { intgt=1; next }
-    intgt && /^[[:space:]][[:space:]][^[:space:]]/ { intgt=0 }
-    intgt && $0 ~ "^[[:space:]]+"k":" { found=1; exit }
+  _assistant_block "$1" "$2" | awk -v k="$3" '
+    { i = index($0, "\t"); if (substr($0, 1, i - 1) == k) { found = 1; exit } }
     END { exit !found }'
 }
 
@@ -144,7 +141,7 @@ validate_item() {
   fi
 
   if [ "$type" = "agent" ] && [ "$assistant" = "copilot" ]; then
-    # Normalise [] → empty: _copilot_write_agent strips brackets, so [] and absent
+    # Normalise [] → empty: _copilot_agent_fm strips brackets, so [] and absent
     # both produce no tools key in the installed file, granting every Copilot tool.
     local _raw_tools
     _raw_tools=$(assistant_config "$src" copilot tools | tr -d '[] ')
@@ -235,9 +232,9 @@ _validate_hook() {
   local name="$1" file="$2" problems=0
   local event matcher timeout
 
-  event=$(grep   -m1 '^## ait:event'   "$file" 2>/dev/null | awk '{print $3}')
-  matcher=$(grep -m1 '^## ait:matcher' "$file" 2>/dev/null | awk '{print $3}')
-  timeout=$(grep -m1 '^## ait:timeout' "$file" 2>/dev/null | awk '{print $3}')
+  event=$(hook_meta "$file" event)
+  matcher=$(hook_meta "$file" matcher)
+  timeout=$(hook_meta "$file" timeout)
 
   if [ -z "$event" ]; then
     printf 'no "## ait:event" header; add one so the hook is wired to a real event\n'
@@ -280,7 +277,7 @@ validate_repo() {
         checked=$((checked + 1))
         if ! reasons=$(validate_item "$type" "$name" "$rel_path" "$assistant"); then
           failures=$((failures + 1))
-          printf '  \033[31m✗\033[0m  %-8s %-24s %s\n' "$type" "$name" "$assistant"
+          ait_fail "$(printf '%-8s %-24s %s' "$type" "$name" "$assistant")"
           while IFS= read -r line; do
             [ -z "$line" ] && continue
             printf '         %s\n' "$line"
@@ -291,7 +288,7 @@ validate_repo() {
   done
 
   if [ "$failures" -eq 0 ]; then
-    printf '  \033[32m✓\033[0m  %d checks passed\n' "$checked"
+    ait_ok "$checked checks passed"
     return 0
   fi
   printf '\n  %d of %d checks failed\n' "$failures" "$checked"

@@ -50,6 +50,51 @@ _breadcrumb() {
   printf '%s' "$result"
 }
 
+# ─── Shared wizard steps ───────────────────────────────────────────────────────
+#
+# Both wizards open on the same assistant list, both then ask for a scope, and both
+# end on the same confirmation gate. Those three are written once here.
+
+# Parallel arrays: _WIZ_ASSISTANT_SLUGS[i] is the slug behind _WIZ_ASSISTANT_LABELS[i].
+# Straight from the registry, so a newly registered assistant appears in both
+# wizards without touching either.
+_load_assistant_choices() {
+  _WIZ_ASSISTANT_SLUGS=()
+  _WIZ_ASSISTANT_LABELS=()
+  local a
+  for a in $AIT_ASSISTANTS; do
+    _WIZ_ASSISTANT_SLUGS+=("$a")
+    _WIZ_ASSISTANT_LABELS+=("$(assistant_label "$a")")
+  done
+}
+
+# Offer Global/Local and assign the caller's `scope`. Returns 1 on ESC, leaving
+# scope untouched so the caller can step back without clearing it itself.
+# Usage: _choose_scope BREADCRUMB
+_choose_scope() {
+  single_menu "Select scope" "$1" \
+    "Global  (applies to all projects)" \
+    "Local   (current project only)" || return 1
+  case "$MENU_INDEX" in
+    0) scope="global" ;;
+    1) scope="local"  ;;
+  esac
+}
+
+# The final gate, shared by both wizards. ENTER means yes, because by this point
+# the user has already chosen everything on the screen above. Returns 1 when they
+# decline. The cursor is shown for the prompt and hidden again after, since the
+# rest of the wizard draws without one.
+_confirm() {
+  printf '\n  %s──────────────────────────────────────────────────%s\n' "$DIM" "$RESET"
+  tput cnorm 2>/dev/null || true
+  printf '\n  Proceed? [Y/n]: '
+  local ans
+  IFS= read -r ans
+  tput civis 2>/dev/null || true
+  [[ -z "$ans" || "$ans" =~ ^[Yy] ]]
+}
+
 # ─── Assistant type lists ──────────────────────────────────────────────────────
 
 # Set _WIZ_TYPE_DISPLAY to display labels and _WIZ_TYPE_INTERNAL to internal names,
@@ -99,18 +144,6 @@ _load_items_for_type() {
   done < <(collect_items_of_type "$type" "$assistant")
 }
 
-# Map a selected label back to its item name.
-_label_to_name() {
-  local label="$1" i
-  for (( i = 0; i < ${#_WIZ_ITEM_LABELS[@]}; i++ )); do
-    if [[ "${_WIZ_ITEM_LABELS[$i]}" == "$label" ]]; then
-      printf '%s' "${_WIZ_ITEM_NAMES[$i]}"
-      return 0
-    fi
-  done
-  printf '%s' "$label"
-}
-
 # ─── "No items" notice ────────────────────────────────────────────────────────
 
 _show_notice() {
@@ -125,6 +158,8 @@ _show_notice() {
 # ─── Wizard ────────────────────────────────────────────────────────────────────
 
 # Global state (arrays can't be returned from functions in bash 3.2)
+_WIZ_ASSISTANT_SLUGS=()
+_WIZ_ASSISTANT_LABELS=()
 _WIZ_TYPE_DISPLAY=()
 _WIZ_TYPE_INTERNAL=()
 _WIZ_ITEM_NAMES=()
@@ -140,30 +175,17 @@ run_wizard() {
 
   local step=1
   local assistant="" scope="" type=""
-  local selected_items=""
+  local selected_idx=""
 
-  # Step 1 options come straight from the registry, so a newly registered
-  # assistant appears here without touching the wizard.
-  local -a assistant_slugs=() assistant_labels=()
-  local a
-  for a in $AIT_ASSISTANTS; do
-    assistant_slugs+=("$a")
-    assistant_labels+=("$(assistant_label "$a")")
-  done
+  _load_assistant_choices
 
   while true; do
     case "$step" in
 
       # ── Step 1: Assistant ──────────────────────────────────────────────────
       1)
-        if single_menu "Select an assistant" "" "${assistant_labels[@]}"; then
-          local i
-          for (( i = 0; i < ${#assistant_labels[@]}; i++ )); do
-            if [[ "${assistant_labels[$i]}" == "$MENU_RESULT" ]]; then
-              assistant="${assistant_slugs[$i]}"
-              break
-            fi
-          done
+        if single_menu "Select an assistant" "" "${_WIZ_ASSISTANT_LABELS[@]}"; then
+          assistant="${_WIZ_ASSISTANT_SLUGS[$MENU_INDEX]}"
           scope=""; type=""
           step=2
         else
@@ -176,13 +198,7 @@ run_wizard() {
       2)
         local bc2
         bc2=$(_breadcrumb "$assistant")
-        if single_menu "Select scope" "$bc2" \
-            "Global  (applies to all projects)" \
-            "Local   (current project only)"; then
-          case "$MENU_RESULT" in
-            "Global"*) scope="global" ;;
-            "Local"*)  scope="local"  ;;
-          esac
+        if _choose_scope "$bc2"; then
           type=""
           step=3
         else
@@ -205,14 +221,7 @@ run_wizard() {
         fi
 
         if single_menu "Select item type" "$bc3" "${_WIZ_TYPE_DISPLAY[@]}"; then
-          local i
-          type=""
-          for (( i = 0; i < ${#_WIZ_TYPE_DISPLAY[@]}; i++ )); do
-            if [[ "${_WIZ_TYPE_DISPLAY[$i]}" == "$MENU_RESULT" ]]; then
-              type="${_WIZ_TYPE_INTERNAL[$i]}"
-              break
-            fi
-          done
+          type="${_WIZ_TYPE_INTERNAL[$MENU_INDEX]}"
           step=4
         else
           scope=""
@@ -236,13 +245,8 @@ run_wizard() {
         fi
 
         if multi_menu "Select items to install" "$bc4" "${_WIZ_ITEM_LABELS[@]}"; then
-          selected_items=""
-          while IFS= read -r label; do
-            [[ -z "$label" ]] && continue
-            selected_items+="$(_label_to_name "$label")"$'\n'
-          done <<< "$MENU_RESULT"
-          selected_items="${selected_items%$'\n'}"
-          if [[ -z "$selected_items" ]]; then
+          selected_idx="$MENU_INDICES"
+          if [[ -z "$selected_idx" ]]; then
             continue   # nothing was toggled — stay on this step
           fi
           step=5
@@ -266,25 +270,17 @@ run_wizard() {
         printf '  Type       %s\n\n' "$type_label"
         printf '  Items:\n'
 
-        while IFS= read -r item; do
-          [[ -z "$item" ]] && continue
-          printf '    \033[36m·\033[0m  %s\n' "$item"
-        done <<< "$selected_items"
+        local i
+        for i in $selected_idx; do
+          printf '    \033[36m·\033[0m  %s\n' "${_WIZ_ITEM_NAMES[$i]}"
+        done
 
-        printf '\n  \033[2m──────────────────────────────────────────────────\033[0m\n'
-        tput cnorm 2>/dev/null || true  # show cursor for the prompt
-        printf '\n  Proceed? [Y/n]: '
-
-        local ans
-        IFS= read -r ans
-        tput civis 2>/dev/null || true
-
-        if [[ -z "$ans" || "$ans" =~ ^[Yy] ]]; then
+        if _confirm; then
           menu_exit
-          _wizard_install "$assistant" "$scope" "$type" "$selected_items" "$project_dir"
+          _wizard_install "$assistant" "$scope" "$type" "$selected_idx" "$project_dir"
           return $?
         else
-          selected_items=""
+          selected_idx=""
           step=4
         fi
         ;;
@@ -294,58 +290,50 @@ run_wizard() {
 
 # ─── Install dispatcher ────────────────────────────────────────────────────────
 
+# SELECTED_IDX is a space-separated list of positions into _WIZ_ITEM_NAMES and
+# _WIZ_ITEM_PATHS, as multi_menu reported them. Addressing the arrays by index is
+# what removes the old name-to-path search, and with it the "could not find path"
+# branch that search needed — an index from those arrays always resolves.
+# Usage: _wizard_install ASSISTANT SCOPE TYPE SELECTED_IDX PROJECT_DIR
 _wizard_install() {
-  local assistant="$1" scope="$2" type="$3" selected_items="$4" project_dir="$5"
+  local assistant="$1" scope="$2" type="$3" selected_idx="$4" project_dir="$5"
 
   printf '\n'
 
-  local installed=0 refused=0 item_name rel_path i reasons
+  local installed=0 refused=0 i name rel_path reasons line
 
-  while IFS= read -r item_name; do
-    [[ -z "$item_name" ]] && continue
-
-    rel_path=""
-    for (( i = 0; i < ${#_WIZ_ITEM_NAMES[@]}; i++ )); do
-      if [[ "${_WIZ_ITEM_NAMES[$i]}" == "$item_name" ]]; then
-        rel_path="${_WIZ_ITEM_PATHS[$i]}"
-        break
-      fi
-    done
-
-    if [[ -z "$rel_path" ]]; then
-      printf '  \033[33m!\033[0m  Could not find path for: %s (skipped)\n' "$item_name"
-      refused=$((refused + 1))
-      continue
-    fi
+  for i in $selected_idx; do
+    name="${_WIZ_ITEM_NAMES[$i]}"
+    rel_path="${_WIZ_ITEM_PATHS[$i]}"
 
     # Final gate. Nothing is written for an item that does not validate, so a
     # malformed item can never land as a silently broken file.
-    if ! reasons=$(validate_item "$type" "$item_name" "$rel_path" "$assistant"); then
-      printf '  \033[31m✗\033[0m  %-6s →  refused (%s)\n' "$type" "$item_name"
+    if ! reasons=$(validate_item "$type" "$name" "$rel_path" "$assistant"); then
+      item_fail "$type" "refused ($name)"
       while IFS= read -r line; do
         [[ -z "$line" ]] && continue
-        printf '         %s\n' "$line"
+        ait_detail "$line"
       done <<< "$reasons"
       refused=$((refused + 1))
       continue
     fi
 
-    if assistant_install "$assistant" "$item_name" "$type" "$rel_path" "$scope" "$project_dir"; then
+    if assistant_install "$assistant" "$name" "$type" "$rel_path" "$scope" "$project_dir"; then
       installed=$((installed + 1))
     else
       refused=$((refused + 1))
     fi
-  done <<< "$selected_items"
+  done
 
   printf '\n'
   if [[ "$refused" -gt 0 ]]; then
-    printf '  \033[33m!\033[0m  %d installed, %d refused. Fix the reasons above and re-run.\n\n' \
-      "$installed" "$refused"
+    ait_note "$installed installed, $refused refused. Fix the reasons above and re-run."
+    printf '\n'
     return 1
   fi
 
-  printf '  \033[32m✓\033[0m  %d installed. Restart %s to pick up the changes.\n\n' \
-    "$installed" "$(assistant_label "$assistant")"
+  ait_ok "$installed installed. Restart $(assistant_label "$assistant") to pick up the changes."
+  printf '\n'
   return 0
 }
 
@@ -434,12 +422,12 @@ _init_write() {
 
   printf '\n'
   if [[ "$failed" -gt 0 ]]; then
-    printf '  \033[33m!\033[0m  %d written, %d left alone, %d failed.\n\n' \
-      "$written" "$skipped" "$failed"
+    ait_note "$written written, $skipped left alone, $failed failed."
+    printf '\n'
     return 1
   fi
-  printf '  \033[32m✓\033[0m  %d written, %d left alone. Fill in the {curly} placeholders.\n\n' \
-    "$written" "$skipped"
+  ait_ok "$written written, $skipped left alone. Fill in the {curly} placeholders."
+  printf '\n'
   return 0
 }
 
@@ -453,12 +441,7 @@ run_init_wizard() {
   local step=1
   local selected="" scope="" targets=""
 
-  local -a assistant_slugs=() assistant_labels=()
-  local a
-  for a in $AIT_ASSISTANTS; do
-    assistant_slugs+=("$a")
-    assistant_labels+=("$(assistant_label "$a")")
-  done
+  _load_assistant_choices
 
   while true; do
     case "$step" in
@@ -468,18 +451,12 @@ run_init_wizard() {
         # _MENU_DISABLED is a global the install flow also writes, and nothing
         # here can fail validation, so it is cleared before the menu draws.
         _MENU_DISABLED=""
-        if multi_menu "Select assistants to initialise" "" "${assistant_labels[@]}"; then
+        if multi_menu "Select assistants to initialise" "" "${_WIZ_ASSISTANT_LABELS[@]}"; then
           selected=""
-          local label i
-          while IFS= read -r label; do
-            [[ -z "$label" ]] && continue
-            for (( i = 0; i < ${#assistant_labels[@]}; i++ )); do
-              if [[ "${assistant_labels[$i]}" == "$label" ]]; then
-                selected+="${assistant_slugs[$i]}"$'\n'
-                break
-              fi
-            done
-          done <<< "$MENU_RESULT"
+          local i
+          for i in $MENU_INDICES; do
+            selected+="${_WIZ_ASSISTANT_SLUGS[$i]}"$'\n'
+          done
           selected="${selected%$'\n'}"
           if [[ -z "$selected" ]]; then
             continue   # nothing was toggled — stay on this step
@@ -496,13 +473,7 @@ run_init_wizard() {
       2)
         local bc2
         bc2=$(_init_labels "$selected")
-        if single_menu "Select scope" "$bc2" \
-            "Global  (applies to all projects)" \
-            "Local   (current project only)"; then
-          case "$MENU_RESULT" in
-            "Global"*) scope="global" ;;
-            "Local"*)  scope="local"  ;;
-          esac
+        if _choose_scope "$bc2"; then
           step=3
         else
           selected=""
@@ -542,15 +513,7 @@ run_init_wizard() {
           [[ -n "$note" ]] && printf '\n  \033[2m%s\033[0m\n' "$note"
         done <<< "$selected"
 
-        printf '\n  \033[2m──────────────────────────────────────────────────\033[0m\n'
-        tput cnorm 2>/dev/null || true  # show cursor for the prompt
-        printf '\n  Proceed? [Y/n]: '
-
-        local ans
-        IFS= read -r ans
-        tput civis 2>/dev/null || true
-
-        if [[ -z "$ans" || "$ans" =~ ^[Yy] ]]; then
+        if _confirm; then
           # Leave the alternate screen before writing, so the per-file overwrite
           # prompts appear on the normal screen and survive the wizard exiting.
           menu_exit

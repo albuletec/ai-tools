@@ -124,7 +124,7 @@ rule's scope, so validation refuses one.
 `ait` installs to `.windsurf/rules/` locally and `{user dir}/rules/` globally. Windsurf's
 documentation has begun referring to `.devin/rules/` after the Devin rebrand, but that path is
 recent and not yet universally recognised across Windsurf versions, whereas `.windsurf/rules/`
-is. If a future release drops `.windsurf/rules/`, `_windsurf_dir` in
+is. If a future release drops `.windsurf/rules/`, `windsurf_local_base` in
 `scripts/assistants/windsurf.sh` is the single place to change.
 
 Windsurf also reads a global `~/.codeium/windsurf/memories/global_rules.md`. That is one file

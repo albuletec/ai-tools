@@ -13,23 +13,11 @@ done
 readonly REPO_DIR="$(cd "$(dirname "$_src")" && pwd)"
 readonly SCRIPTS_DIR="$REPO_DIR/scripts"
 
-# ─── Colours (disabled when not a tty) ───────────────────────────────────────
-if [ -t 1 ]; then
-  GREEN='\033[0;32m'; YELLOW='\033[1;33m'
-  CYAN='\033[0;36m'; BOLD='\033[1m'; DIM='\033[2m'; RESET='\033[0m'
-else
-  GREEN=''; YELLOW=''; CYAN=''; BOLD=''; DIM=''; RESET=''
-fi
-
-# ─── Output helpers ───────────────────────────────────────────────────────────
-die()     { printf '\033[0;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
-info()    { printf "${CYAN}→${RESET}  %s\n" "$*"; }
-success() { printf "${GREEN}✓${RESET}  %s\n" "$*"; }
-warn()    { printf "${YELLOW}!${RESET}  %s\n" "$*"; }
-header()  { printf "\n${BOLD}%s${RESET}\n" "$*"; }
-dim()     { printf "${DIM}%s${RESET}\n" "$*"; }
-
 # ─── Load library modules ─────────────────────────────────────────────────────
+# output.sh first: it owns the colour variables and the status-line helpers that
+# every module below prints through.
+# shellcheck source=scripts/output.sh
+source "$SCRIPTS_DIR/output.sh"
 # shellcheck source=scripts/body.sh
 source "$SCRIPTS_DIR/body.sh"
 # shellcheck source=scripts/registry.sh
@@ -56,11 +44,12 @@ unset _assistant _assistant_script
 
 # ─── Auto-pull ────────────────────────────────────────────────────────────────
 auto_pull() {
-  printf "${CYAN}→${RESET}  Syncing ai-tools repo... "
+  printf '%s→%s  Syncing ai-tools repo... ' "$CYAN" "$RESET"
   if git -C "$REPO_DIR" pull --ff-only --quiet 2>/dev/null; then
-    printf "${GREEN}done${RESET}\n"
+    printf '%sdone%s\n' "$GREEN" "$RESET"
   else
-    printf "${YELLOW}skipped${RESET} ${DIM}(offline or local changes present)${RESET}\n"
+    printf '%sskipped%s %s(offline or local changes present)%s\n' \
+      "$YELLOW" "$RESET" "$DIM" "$RESET"
   fi
 }
 

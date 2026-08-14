@@ -106,6 +106,36 @@ fm_get_raw() {
     $0 ~ "^"k":" { sub("^"k":[[:space:]]*", ""); sub(/[[:space:]]+$/, ""); print; exit }'
 }
 
+# Emit the name and description keys, which every assistant except Claude Code
+# requires in the file it reads.
+#
+# description always goes through yaml_quote. The value came back from fm_get,
+# which read it *out* of YAML, so it is plain text and not itself valid YAML — a
+# description containing ": " or a leading "[" would otherwise produce a file that
+# no longer parses. Doing it here is what keeps that rule from being something
+# each assistant has to remember.
+# Usage: fm_name_description SRC NAME
+fm_name_description() {
+  printf 'name: %s\n' "$2"
+  printf 'description: %s\n' "$(yaml_quote "$(fm_get "$1" description)")"
+}
+
+# Emit a frontmatter line for a key the item sets for one assistant only. The
+# value is written through verbatim: it was authored as YAML in the source, under
+# assistants.ASSISTANT, in that assistant's own vocabulary. Prints nothing when
+# the key is absent, which is the normal case.
+#
+# Always returns 0, because callers run under `set -e` and a missing key is not an
+# error. Use this for a key that means something different per assistant — Cursor's
+# readonly, Windsurf's globs — and _shared_opt for one that carries over.
+# Usage: _assistant_opt FILE ASSISTANT KEY
+_assistant_opt() {
+  local src="$1" assistant="$2" key="$3" val
+  val=$(assistant_config "$src" "$assistant" "$key")
+  [ -n "$val" ] && printf '%s: %s\n' "$key" "$val"
+  return 0
+}
+
 # Emit a frontmatter line for a key that means the same thing in Claude Code and
 # in the target assistant: the assistant-specific override wins, otherwise the
 # top-level value carries over so it only has to be written once. Prints nothing
@@ -183,18 +213,40 @@ has_assistant() {
     END { exit !found }'
 }
 
-# Read assistants.ASSISTANT.KEY, if set. Prints nothing when absent.
-# Usage: assistant_config FILE ASSISTANT KEY
-assistant_config() {
-  local file="$1" assistant="$2" key="$3"
-  get_frontmatter "$file" | awk -v a="$assistant" -v k="$key" '
+# Every key declared under assistants.ASSISTANT, as KEY<TAB>VALUE lines, in the
+# order written. A key with no inline value — a block sequence header — emits an
+# empty VALUE, which is what lets validate.sh tell "declared but unreadable" from
+# "absent" and refuse the install rather than silently widening a rule's scope.
+#
+# This is the one place that knows how to walk into the assistants: block. Reading
+# a value and asking whether a key is declared are the same navigation with two
+# different answers, and they were previously two awk programs that had to be kept
+# in step by hand.
+# Usage: _assistant_block FILE ASSISTANT
+_assistant_block() {
+  get_frontmatter "$1" | awk -v a="$2" '
     /^assistants:/                    { ina=1; next }
     ina && /^[^[:space:]]/            { ina=0; intgt=0 }
     ina && $0 ~ "^[[:space:]]+"a":"   { intgt=1; next }
+    # Two spaces then non-space is the next assistant, which ends this one.
     intgt && /^[[:space:]][[:space:]][^[:space:]]/ { intgt=0 }
-    intgt && $0 ~ "^[[:space:]]+"k":" {
-      sub("^[[:space:]]*"k":[[:space:]]*", ""); print; exit
+    intgt && /^[[:space:]]+[^[:space:]]+:/ {
+      line = $0
+      sub(/^[[:space:]]+/, "", line)
+      i = index(line, ":")
+      val = substr(line, i + 1)
+      sub(/^[[:space:]]+/, "", val)
+      print substr(line, 1, i - 1) "\t" val
     }'
+}
+
+# Read assistants.ASSISTANT.KEY, if set. Prints nothing when absent.
+# Usage: assistant_config FILE ASSISTANT KEY
+assistant_config() {
+  # Split on the first tab only, so a value containing one survives.
+  _assistant_block "$1" "$2" | awk -v k="$3" '
+    { i = index($0, "\t")
+      if (substr($0, 1, i - 1) == k) { print substr($0, i + 1); exit } }'
 }
 
 # ─── Placeholder substitution ─────────────────────────────────────────────────

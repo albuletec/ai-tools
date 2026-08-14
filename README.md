@@ -398,8 +398,9 @@ cursor/init/              AGENTS.md starter template
 windsurf/init/            AGENTS.md starter template — byte-identical to Cursor's
 tests/run.sh              test suite
 scripts/
+  output.sh               colours and the status-line vocabulary
   body.sh                 frontmatter parsing and placeholders
-  registry.sh             the list of assistants and the dispatch to their scripts
+  registry.sh             the list of assistants, their install roots, and the dispatch
   collect.sh              item discovery and assistant filtering
   validate.sh             the fail-closed checks, and the hook event tables
   install.sh              shared install helpers — not the bootstrap above
@@ -425,8 +426,10 @@ parts you want into your own `~/.claude/settings.json`.
 
 Two changes, because the registry drives everything else:
 
-1. Write `scripts/assistants/{name}.sh` with `{name}_types()`, `{name}_install()` and
-   optionally `{name}_label()`.
+1. Write `scripts/assistants/{name}.sh` with `{name}_types()`, `{name}_install()`,
+   `{name}_local_base()`, `{name}_global_base()` and optionally `{name}_label()`.
+   `render_item` writes the file, so an installer declares where it goes and which
+   frontmatter keys belong in it — not how to assemble one.
 2. Add the slug to `AIT_ASSISTANTS` in `scripts/registry.sh`.
 
 Then opt items in with `assistants: {name}:`, and add a `{instructionsFile}` mapping in

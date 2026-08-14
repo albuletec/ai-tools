@@ -4,7 +4,8 @@
 #
 #   tests/run.sh            run everything
 #   tests/run.sh unit       run one section:
-#                           syntax | install | unit | validate | rules | init | golden | hooks
+#                           syntax | install | unit | validate | rules | init |
+#                           wizard | golden | hooks
 #
 # Every case here maps to a real defect. Sections marked "regression" reproduce a
 # bug found in the 2026-08-12 audit and fail against the code that shipped it.
@@ -14,6 +15,8 @@ set -uo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPTS_DIR="$REPO_DIR/scripts"
 
+# shellcheck source=../scripts/output.sh
+source "$SCRIPTS_DIR/output.sh"
 # shellcheck source=../scripts/body.sh
 source "$SCRIPTS_DIR/body.sh"
 # shellcheck source=../scripts/registry.sh
@@ -24,8 +27,10 @@ source "$SCRIPTS_DIR/collect.sh"
 source "$SCRIPTS_DIR/install.sh"
 # shellcheck source=../scripts/validate.sh
 source "$SCRIPTS_DIR/validate.sh"
-# Sourced for _init_collect and _init_write. It defines functions and initialises
-# empty arrays only, so loading it has no side effects outside the wizard flows.
+# menu.sh and wizard.sh both define functions and initialise empty variables only,
+# so loading them has no side effects outside the flows the wizard section drives.
+# shellcheck source=../scripts/menu.sh
+source "$SCRIPTS_DIR/menu.sh"
 # shellcheck source=../scripts/wizard.sh
 source "$SCRIPTS_DIR/wizard.sh"
 for a in $AIT_ASSISTANTS; do
@@ -40,14 +45,16 @@ PASS=0
 FAIL=0
 CURRENT_SECTION=""
 
-RED=$'\033[31m'; GREEN=$'\033[32m'; BOLD=$'\033[1m'; DIM=$'\033[2m'; OFF=$'\033[0m'
+# RED, GREEN, BOLD, DIM and RESET come from output.sh, which gates them on stdout
+# being a terminal — so a piped test log is plain text throughout, including the
+# installer output the golden section provokes.
 
-section() { CURRENT_SECTION="$1"; printf '\n%s%s%s\n' "$BOLD" "$1" "$OFF"; }
+section() { CURRENT_SECTION="$1"; printf '\n%s%s%s\n' "$BOLD" "$1" "$RESET"; }
 
-ok()   { PASS=$((PASS + 1)); printf '  %s✓%s %s\n' "$GREEN" "$OFF" "$1"; }
+ok()   { PASS=$((PASS + 1)); printf '  %s✓%s %s\n' "$GREEN" "$RESET" "$1"; }
 bad()  {
   FAIL=$((FAIL + 1))
-  printf '  %s✗%s %s\n' "$RED" "$OFF" "$1"
+  printf '  %s✗%s %s\n' "$RED" "$RESET" "$1"
   [ -n "${2:-}" ] && printf '      expected: %s\n' "$2"
   [ -n "${3:-}" ] && printf '      actual:   %s\n' "$3"
   return 0
@@ -875,6 +882,103 @@ EOF
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
+# wizard — the interactive flows, driven by a recorded keystroke stream
+#
+# The menus read single bytes from stdin, so a file of keystrokes drives them just
+# like a terminal: \033[B is Down, a space toggles, \n confirms, a lone \033 is
+# ESC. Input comes from a file rather than a pipe so the menu runs in this shell
+# and its MENU_* globals can be asserted on.
+#
+# Until this section existed the wizard was the only part of ait with no coverage
+# at all, because it needs a TTY to look at. It does not need one to run.
+# ─────────────────────────────────────────────────────────────────────────────
+test_wizard() {
+  section "wizard: menus report the selected position"
+  local d; d=$(new_dir wizard)
+  mkdir -p "$d/home" "$d/proj"
+
+  printf '\033[B\n' > "$d/k-down-enter"
+  MENU_INDEX=""; MENU_RESULT=""
+  single_menu "pick one" "" alpha beta gamma < "$d/k-down-enter" >/dev/null
+  assert_eq "single_menu reports the index"       "1"    "$MENU_INDEX"
+  assert_eq "single_menu still reports the label" "beta" "$MENU_RESULT"
+
+  # A lone ESC byte: read_key sees \033 and no arrow sequence follows it.
+  printf '\033' > "$d/k-esc"
+  MENU_INDEX="stale"
+  if single_menu "pick one" "" alpha beta < "$d/k-esc" >/dev/null; then
+    bad "ESC on a single menu returns non-zero" "failure" "success"
+  else
+    ok "ESC on a single menu returns non-zero"
+  fi
+  assert_eq "ESC clears the index" "" "$MENU_INDEX"
+
+  # Two toggles, reported in the order they were made.
+  printf ' \033[B \n' > "$d/k-two"
+  MENU_INDICES=""; _MENU_DISABLED=""
+  multi_menu "pick some" "" alpha beta gamma < "$d/k-two" >/dev/null
+  assert_eq "multi_menu reports every index" "0 1" "$MENU_INDICES"
+
+  printf '\n' > "$d/k-none"
+  MENU_INDICES="stale"; _MENU_DISABLED=""
+  multi_menu "pick some" "" alpha beta < "$d/k-none" >/dev/null
+  assert_eq "confirming with nothing toggled reports no indices" "" "$MENU_INDICES"
+
+  section "wizard: install flow writes the selected item"
+  # claude-code (ENTER) → global (ENTER) → Agent (ENTER) → toggle first → confirm
+  printf '\n\n\n \ny\n' > "$d/k-install"
+  (
+    cd "$d/proj" || exit 1
+    export HOME="$d/home"
+    run_wizard < "$d/k-install"
+  ) >/dev/null 2>&1
+  assert_true "the agent lands in the global tree" \
+    bash -c "[ -s '$d/home/.claude/agents/code-planner.md' ]"
+  assert_true "it parses as YAML plus a body" \
+    yaml_parses "$d/home/.claude/agents/code-planner.md"
+
+  section "wizard: arrow keys, local scope and multi-select"
+  # Down→Copilot, Down→Local, Agent, toggle two, confirm
+  printf '\033[B\n\033[B\n\n \033[B \ny\n' > "$d/k-copilot"
+  local proj2="$d/proj2" home2="$d/home2"
+  mkdir -p "$proj2" "$home2"
+  (
+    cd "$proj2" || exit 1
+    export HOME="$home2"
+    run_wizard < "$d/k-copilot"
+  ) >/dev/null 2>&1
+  assert_eq "both toggled agents install" "2" \
+    "$(find "$proj2/.github/agents" -name '*.agent.md' 2>/dev/null | wc -l | tr -d ' ')"
+  assert_eq "local scope writes nothing to \$HOME" "0" \
+    "$(find "$home2" -type f 2>/dev/null | wc -l | tr -d ' ')"
+
+  section "wizard: ESC on the first step exits without writing"
+  local home3="$d/home3" proj3="$d/proj3"
+  mkdir -p "$home3" "$proj3"
+  printf '\033' > "$d/k-escape"
+  (
+    cd "$proj3" || exit 1
+    export HOME="$home3"
+    run_wizard < "$d/k-escape"
+  ) >/dev/null 2>&1
+  assert_eq "nothing is installed" "0" \
+    "$(find "$home3" "$proj3" -type f 2>/dev/null | wc -l | tr -d ' ')"
+
+  section "wizard: init flow writes the context file"
+  local home4="$d/home4" proj4="$d/proj4"
+  mkdir -p "$home4" "$proj4"
+  # toggle claude-code → confirm list → global → confirm
+  printf ' \n\ny\n' > "$d/k-init"
+  (
+    cd "$proj4" || exit 1
+    export HOME="$home4"
+    run_init_wizard < "$d/k-init"
+  ) >/dev/null 2>&1
+  assert_true "the global CLAUDE.md is written" \
+    bash -c "[ -s '$home4/.claude/CLAUDE.md' ]"
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
 # hooks — behaviour of the shipped guards
 # ─────────────────────────────────────────────────────────────────────────────
 test_hooks() {
@@ -1002,7 +1106,7 @@ CASES
 
 main() {
   local want="${1:-all}"
-  printf '%sai-tools test suite%s %s(%s)%s\n' "$BOLD" "$OFF" "$DIM" "$want" "$OFF"
+  printf '%sai-tools test suite%s %s(%s)%s\n' "$BOLD" "$RESET" "$DIM" "$want" "$RESET"
 
   case "$want" in
     syntax)   test_syntax ;;
@@ -1011,19 +1115,20 @@ main() {
     validate) test_validate ;;
     rules)    test_rules ;;
     init)     test_init ;;
+    wizard)   test_wizard ;;
     golden)   test_golden ;;
     hooks)    test_hooks ;;
     all)      test_syntax; test_install; test_unit; test_validate
-              test_rules; test_init; test_golden; test_hooks ;;
+              test_rules; test_init; test_wizard; test_golden; test_hooks ;;
     *)        printf 'unknown section: %s\n' "$want" >&2; exit 2 ;;
   esac
 
-  printf '\n%s──────────────────────────────%s\n' "$DIM" "$OFF"
+  printf '\n%s──────────────────────────────%s\n' "$DIM" "$RESET"
   if [ "$FAIL" -eq 0 ]; then
-    printf '%s✓ %d passed%s\n\n' "$GREEN" "$PASS" "$OFF"
+    printf '%s✓ %d passed%s\n\n' "$GREEN" "$PASS" "$RESET"
     return 0
   fi
-  printf '%s✗ %d failed%s, %d passed\n\n' "$RED" "$FAIL" "$OFF" "$PASS"
+  printf '%s✗ %d failed%s, %d passed\n\n' "$RED" "$FAIL" "$RESET" "$PASS"
   return 1
 }
 

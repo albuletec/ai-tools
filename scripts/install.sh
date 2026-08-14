@@ -24,6 +24,42 @@ copy_skill_support_files() {
   done
 }
 
+# Render one item to TARGET and report it.
+#
+# Every assistant writes the same shape of file — frontmatter between --- lines,
+# then the body with its placeholders resolved — and differs only in where the file
+# goes and which frontmatter keys belong in it. That variation is the last two
+# arguments; everything else is identical, so it lives here once.
+#
+# FM_FN is the name of a function that emits the frontmatter lines, called with
+# SRC and NAME. It must not print the --- delimiters.
+#
+# A skill authored as a directory has its supporting files copied alongside, since
+# every assistant reads scripts/, references/ and assets/ relative to SKILL.md. The
+# -d test is what distinguishes those from flat files, so agents and rules — always
+# single files — never trigger it.
+# Usage: render_item ASSISTANT TYPE NAME REL_PATH TARGET FM_FN
+render_item() {
+  local assistant="$1" type="$2" name="$3" rel_path="$4" target="$5" fm_fn="$6"
+  local src dir
+  src=$(item_source_file "$rel_path")
+  dir=$(dirname "$target")
+
+  mkdir -p "$dir"
+  if [ -d "$REPO_DIR/$rel_path" ]; then
+    copy_skill_support_files "$REPO_DIR/$rel_path" "$dir"
+  fi
+
+  {
+    printf -- '---\n'
+    "$fm_fn" "$src" "$name"
+    printf -- '---\n'
+    get_body "$src" | substitute_placeholders "$assistant"
+  } > "$target"
+
+  item_ok "$type" "$target"
+}
+
 # Set to "written" or "left-alone" by the last install_init_file call. The caller
 # needs to know which happened to report a summary, and it cannot capture stdout:
 # in ask mode the overwrite prompt has to reach the terminal.
@@ -43,7 +79,7 @@ install_init_file() {
   AIT_INIT_LAST_ACTION="left-alone"
 
   if [ ! -f "$src" ]; then
-    printf '  \033[31m✗\033[0m  template is missing: %s\n' "$src"
+    ait_fail "template is missing: $src"
     return 1
   fi
 
@@ -51,7 +87,7 @@ install_init_file() {
     case "$mode" in
       overwrite) ;;
       skip)
-        printf '  \033[33m!\033[0m  exists, left alone: %s\n' "$target"
+        ait_note "exists, left alone: $target"
         return 0
         ;;
       *)
@@ -61,7 +97,7 @@ install_init_file() {
         case "$answer" in
           y|Y) ;;
           *)
-            printf '  \033[33m!\033[0m  exists, left alone: %s\n' "$target"
+            ait_note "exists, left alone: $target"
             return 0
             ;;
         esac
@@ -72,19 +108,26 @@ install_init_file() {
   mkdir -p "$(dirname "$target")"
   cp "$src" "$target"
   AIT_INIT_LAST_ACTION="written"
-  printf '  \033[32m✓\033[0m  %s\n' "$target"
+  ait_ok "$target"
   return 0
 }
 
-# Read ## ait:key value lines from a hook file header.
+# Read one `## ait:KEY value` header from a hook file, exactly as written. Prints
+# nothing when the hook omits it, which is how validate.sh tells "absent" from
+# "defaulted": a hook with no event must be refused, not silently wired to
+# PreToolUse, so the raw read lives here and the defaulting in parse_hook_meta.
+# Usage: hook_meta FILE KEY
+hook_meta() {
+  grep -m1 "^## ait:$2" "$1" 2>/dev/null | awk '{print $3}'
+}
+
 # Outputs EVENT<TAB>MATCHER<TAB>TIMEOUT with safe defaults. Values are validated
 # separately by validate.sh, which runs before any install writes a file.
 parse_hook_meta() {
-  local hook_file="$1"
   local event matcher timeout
-  event=$(grep   -m1 '^## ait:event'   "$hook_file" 2>/dev/null | awk '{print $3}')
-  matcher=$(grep -m1 '^## ait:matcher' "$hook_file" 2>/dev/null | awk '{print $3}')
-  timeout=$(grep -m1 '^## ait:timeout' "$hook_file" 2>/dev/null | awk '{print $3}')
+  event=$(hook_meta "$1" event)
+  matcher=$(hook_meta "$1" matcher)
+  timeout=$(hook_meta "$1" timeout)
   printf '%s\t%s\t%s' \
     "${event:-PreToolUse}" \
     "${matcher:-Bash}" \
@@ -103,13 +146,13 @@ patch_settings_json() {
   local timeout="$5"
 
   if ! command -v jq >/dev/null 2>&1; then
-    printf '  \033[33m!\033[0m  jq not found — hook installed but not wired into settings.json\n'
-    printf '       Install jq (brew install jq) then re-run to wire hooks.\n'
+    ait_note "jq not found — hook installed but not wired into settings.json"
+    ait_detail "Install jq (brew install jq) then re-run to wire hooks."
     return 1
   fi
 
   if ! printf '%s' "$timeout" | grep -qE '^[0-9]+$'; then
-    printf '  \033[31m✗\033[0m  not wired: timeout "%s" is not a whole number of seconds\n' "$timeout"
+    ait_fail "not wired: timeout \"$timeout\" is not a whole number of seconds"
     return 1
   fi
 
@@ -119,7 +162,7 @@ patch_settings_json() {
   fi
 
   if ! jq -e . "$settings_file" >/dev/null 2>&1; then
-    printf '  \033[31m✗\033[0m  not wired: %s is not valid JSON\n' "$settings_file"
+    ait_fail "not wired: $settings_file is not valid JSON"
     return 1
   fi
 
@@ -129,7 +172,7 @@ patch_settings_json() {
     '[ (.hooks[$event]? // [])[] | (.hooks? // [])[] | select(.command == $cmd) ] | length' \
     "$settings_file" 2>/dev/null || printf '0')
   if [ "${already:-0}" != "0" ]; then
-    printf '  \033[2m    already wired: %s\033[0m\n' "$cmd"
+    ait_faint "    already wired: $cmd"
     return 0
   fi
 
@@ -166,17 +209,17 @@ patch_settings_json() {
     end
   ' "$settings_file" > "$tmp" 2>/dev/null; then
     rm -f "$tmp"
-    printf '  \033[31m✗\033[0m  not wired: could not patch %s\n' "$settings_file"
+    ait_fail "not wired: could not patch $settings_file"
     return 1
   fi
 
   if [ ! -s "$tmp" ]; then
     rm -f "$tmp"
-    printf '  \033[31m✗\033[0m  not wired: refusing to write an empty %s\n' "$settings_file"
+    ait_fail "not wired: refusing to write an empty $settings_file"
     return 1
   fi
 
   mv "$tmp" "$settings_file" || return 1
-  printf '  \033[32m✓\033[0m  wired in %s\n' "$(basename "$settings_file")"
+  ait_ok "wired in $(basename "$settings_file")"
   return 0
 }
