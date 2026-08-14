@@ -39,10 +39,12 @@ make install
 ait
 ```
 
-This opens a four-step wizard:
+This opens a four-step wizard that loops until you are done:
 
 ```
-1. Assistant  →  2. Scope  →  3. Type  →  4. Items  →  Confirm
+1. Assistant  →  2. Scope  →  3. Type  →  4. Items  →  Confirm  →  install
+                              ▲                                      │
+                              └──────────  install anything else?  ───┘
 ```
 
 | Key | Action |
@@ -85,6 +87,29 @@ screen.
 An item that would install badly for the chosen assistant is listed with a `✗` and its
 reason, and cannot be selected. Run `ait validate` to see every such reason across the whole
 repo at once.
+
+### Installing more than one type
+
+Item types install one at a time, because each type has its own list to choose from. So after
+writing the files the wizard asks:
+
+```
+  ✓  3 installed.
+
+  Install anything else? [Y/n]:
+```
+
+Answering yes returns you to **Step 3** with the same assistant and scope, ready to pick a
+different type — agents, then skills, then hooks, in one run. The question is asked on the
+normal screen, next to the results, rather than in a menu that would hide them.
+
+`ESC` at that Type step steps back to Scope, and again to Assistant, so a later round can
+install somewhere else or for a different assistant entirely. When you finish, a single closing
+line names every assistant you touched:
+
+```
+  ✓  7 installed across 3 rounds. Restart Claude Code, Cursor to pick up the changes.
+```
 
 ## Initialise a project
 

@@ -81,6 +81,58 @@ _choose_scope() {
   esac
 }
 
+# Ask whether to install anything else, on the normal screen rather than in a menu.
+#
+# The install results have just been printed there, and re-entering the alternate
+# screen buffer to draw a menu would wipe them before the user had read what
+# landed. So this is a plain prompt, deliberately.
+#
+# A failed read means stdin ran out — answer no rather than loop forever, which is
+# what an unattended run and the test suite both need.
+_prompt_install_more() {
+  printf '  Install anything else? [Y/n]: '
+  local ans
+  if ! IFS= read -r ans; then
+    printf '\n'
+    return 1
+  fi
+  [[ -z "$ans" || "$ans" =~ ^[Yy] ]]
+}
+
+# The closing line, printed once no matter how many rounds were installed.
+#
+# Restarting is per assistant, so this names every assistant touched instead of
+# repeating the advice after each round — where it would also be premature, since
+# the user may be about to install more.
+# Usage: _wizard_farewell INSTALLED REFUSED ROUNDS TOUCHED_SLUGS
+_wizard_farewell() {
+  local installed="$1" refused="$2" rounds="$3" touched="$4"
+  local labels="" slug
+
+  # Registry order, not the order the user happened to visit them in.
+  for slug in $AIT_ASSISTANTS; do
+    case " $touched " in
+      *" $slug "*)
+        if [ -n "$labels" ]; then labels+=", "; fi
+        labels+="$(assistant_label "$slug")"
+        ;;
+    esac
+  done
+
+  if [ "$installed" -eq 0 ]; then
+    ait_note "Nothing was installed."
+    printf '\n'
+    return 0
+  fi
+
+  if [ "$rounds" -gt 1 ]; then
+    ait_ok "$installed installed across $rounds rounds. Restart $labels to pick up the changes."
+  else
+    ait_ok "Restart $labels to pick up the changes."
+  fi
+  printf '\n'
+}
+
 # The final gate, shared by both wizards. ENTER means yes, because by this point
 # the user has already chosen everything on the screen above. Returns 1 when they
 # decline. The cursor is shown for the prompt and hidden again after, since the
@@ -176,6 +228,10 @@ run_wizard() {
   local step=1
   local assistant="" scope="" type=""
   local selected_idx=""
+
+  # Totals across every round, since the wizard now installs more than one type
+  # per run. touched is a space-delimited set of assistant slugs.
+  local installed_total=0 refused_total=0 rounds=0 touched=""
 
   _load_assistant_choices
 
@@ -277,7 +333,30 @@ run_wizard() {
 
         if _confirm; then
           menu_exit
-          _wizard_install "$assistant" "$scope" "$type" "$selected_idx" "$project_dir"
+          # Reports through AIT_WIZ_INSTALLED / AIT_WIZ_REFUSED, since a refusal
+          # is a non-zero return and this must not abort the wizard.
+          _wizard_install "$assistant" "$scope" "$type" "$selected_idx" "$project_dir" || true
+          installed_total=$(( installed_total + AIT_WIZ_INSTALLED ))
+          refused_total=$(( refused_total + AIT_WIZ_REFUSED ))
+          rounds=$(( rounds + 1 ))
+          case " $touched " in
+            *" $assistant "*) ;;
+            *) touched+="$assistant " ;;
+          esac
+
+          # Installing a second type should not mean quitting and walking back
+          # through assistant and scope, so go back to the Type step with both
+          # still chosen. ESC from there steps back further, as it does anywhere.
+          if _prompt_install_more; then
+            selected_idx=""
+            type=""
+            menu_enter
+            step=3
+            continue
+          fi
+
+          _wizard_farewell "$installed_total" "$refused_total" "$rounds" "$touched"
+          [ "$refused_total" -eq 0 ]
           return $?
         else
           selected_idx=""
@@ -289,6 +368,12 @@ run_wizard() {
 }
 
 # ─── Install dispatcher ────────────────────────────────────────────────────────
+
+# Set by the last _wizard_install call. The caller adds them up across rounds and
+# cannot read them from the return value, which only says whether anything was
+# refused, nor from stdout, which has to reach the terminal as it happens.
+AIT_WIZ_INSTALLED=0
+AIT_WIZ_REFUSED=0
 
 # SELECTED_IDX is a space-separated list of positions into _WIZ_ITEM_NAMES and
 # _WIZ_ITEM_PATHS, as multi_menu reported them. Addressing the arrays by index is
@@ -325,14 +410,17 @@ _wizard_install() {
     fi
   done
 
+  AIT_WIZ_INSTALLED="$installed"
+  AIT_WIZ_REFUSED="$refused"
+
   printf '\n'
   if [[ "$refused" -gt 0 ]]; then
-    ait_note "$installed installed, $refused refused. Fix the reasons above and re-run."
+    ait_note "$installed installed, $refused refused. Fix the reasons above and install them again."
     printf '\n'
     return 1
   fi
 
-  ait_ok "$installed installed. Restart $(assistant_label "$assistant") to pick up the changes."
+  ait_ok "$installed installed."
   printf '\n'
   return 0
 }

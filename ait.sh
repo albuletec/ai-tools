@@ -119,7 +119,12 @@ ${BOLD}WIZARD STEPS${RESET}
   3. Type       Agent | Skill | Rule | Hook ${DIM}(only what the assistant supports)${RESET}
   4. Items      Multi-select with SPACE, confirm with ENTER
 
-  ESC goes back one step.  ESC on step 1 exits.
+  After installing it asks whether you want to install anything else, and returns
+  to step 3 with the same assistant and scope — so installing agents and then
+  skills is one run, not two.
+
+  ESC goes back one step, including from step 3 on a later round, so a second
+  round can change the scope or the assistant.  ESC on step 1 exits.
 
 ${BOLD}INIT STEPS${RESET}
   1. Assistant  Multi-select with SPACE, confirm with ENTER

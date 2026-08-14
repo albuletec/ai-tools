@@ -49,10 +49,12 @@ Install `jq` with `brew install jq`.
 ait
 ```
 
-That opens a four-step wizard:
+That opens a four-step wizard that loops until you are done:
 
 ```
-1. Assistant  →  2. Scope  →  3. Type  →  4. Items  →  Confirm
+1. Assistant  →  2. Scope  →  3. Type  →  4. Items  →  Confirm  →  install
+                              ▲                                      │
+                              └──────────  install anything else?  ───┘
 ```
 
 | Key | Action |
@@ -61,6 +63,11 @@ That opens a four-step wizard:
 | `SPACE` | Toggle an item (step 4 only) |
 | `ENTER` | Select / confirm |
 | `ESC` | Back one step — exits from step 1 |
+
+After each install it asks whether you want to install anything else and returns to the
+**Type** step with the same assistant and scope, so installing agents and then skills is one
+run rather than two. `ESC` from there steps back further if the next round needs a different
+scope or assistant.
 
 **Scope** decides where things land:
 
@@ -405,7 +412,7 @@ scripts/
   validate.sh             the fail-closed checks, and the hook event tables
   install.sh              shared install helpers — not the bootstrap above
   menu.sh                 arrow-key menu engine
-  wizard.sh               the four-step install flow and the three-step init flow
+  wizard.sh               the looping install flow and the three-step init flow
   assistants/
     claude-code.sh        renders and installs for Claude Code
     copilot.sh            renders and installs for Copilot

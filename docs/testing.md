@@ -23,7 +23,7 @@ macOS and with every GitHub runner.
 | `validate` | Every fail-closed rule, and that the shipped repo is clean |
 | `rules` | Rule discovery, the three renderers, Copilot's refusal, and every activation check |
 | `init` | `assistant_init_targets` per assistant and scope, target dedup, and `install_init_file`'s three modes |
-| `wizard` | Both interactive flows, driven by a file of keystrokes: menu positions, arrow navigation, scope, multi-select, ESC |
+| `wizard` | Both interactive flows, driven by a file of keystrokes: menu positions, arrow navigation, scope, multi-select, ESC, and the post-install loop |
 | `golden` | Installs every item for every assistant and scope into a temp tree, then inspects the result |
 | `hooks` | Payload matrices for all five guards, plus terminology rule coverage |
 

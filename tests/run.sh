@@ -964,6 +964,57 @@ test_wizard() {
   assert_eq "nothing is installed" "0" \
     "$(find "$home3" "$proj3" -type f 2>/dev/null | wc -l | tr -d ' ')"
 
+  section "wizard: one run installs more than one type"
+  # The point of the loop: installing an agent and then a skill without quitting
+  # and walking back through assistant and scope.
+  # Agent → confirm → "yes, more" → Down to Skill → confirm → "no".
+  local home5="$d/home5" proj5="$d/proj5"
+  mkdir -p "$home5" "$proj5"
+  printf '\n\n\n \ny\ny\n\033[B\n \ny\nn\n' > "$d/k-multi"
+  (
+    cd "$proj5" || exit 1
+    export HOME="$home5"
+    run_wizard < "$d/k-multi"
+  ) >/dev/null 2>&1
+  assert_true "the first round's agent is installed" \
+    bash -c "[ -s '$home5/.claude/agents/code-planner.md' ]"
+  assert_eq "the second round's skill is installed too" "1" \
+    "$(find "$home5/.claude/skills" -name SKILL.md 2>/dev/null | wc -l | tr -d ' ')"
+
+  section "wizard: a later round can go back and change scope"
+  # ESC at the Type step returns to Scope with the assistant still chosen.
+  #
+  # \033zz is one ESC press. After the leading \033, read_key reads two more bytes
+  # to test for an arrow sequence; from a file those arrive immediately, so the two
+  # junk bytes are what a real terminal expresses as "nothing followed the ESC".
+  # Consecutive \033 bytes would be misread as one escape, hence the padding.
+  local home6="$d/home6" proj6="$d/proj6"
+  mkdir -p "$home6" "$proj6"
+  printf '\n\n\n \ny\ny\n\033zz\033[B\n\n \ny\nn\n' > "$d/k-back"
+  (
+    cd "$proj6" || exit 1
+    export HOME="$home6"
+    run_wizard < "$d/k-back"
+  ) >/dev/null 2>&1
+  assert_true "round one installed globally" \
+    bash -c "[ -s '$home6/.claude/agents/code-planner.md' ]"
+  assert_true "round two installed locally after stepping back" \
+    bash -c "[ -s '$proj6/.claude/agents/code-planner.md' ]"
+
+  section "wizard: the loop ends when stdin does"
+  # An unattended run that stops answering must finish, not spin on the prompt.
+  local home7="$d/home7" proj7="$d/proj7" rc=0
+  mkdir -p "$home7" "$proj7"
+  printf '\n\n\n \ny\n' > "$d/k-eof"
+  (
+    cd "$proj7" || exit 1
+    export HOME="$home7"
+    run_wizard < "$d/k-eof"
+  ) >/dev/null 2>&1 || rc=$?
+  assert_eq "the run exits 0" "0" "$rc"
+  assert_true "and the item still landed" \
+    bash -c "[ -s '$home7/.claude/agents/code-planner.md' ]"
+
   section "wizard: init flow writes the context file"
   local home4="$d/home4" proj4="$d/proj4"
   mkdir -p "$home4" "$proj4"
